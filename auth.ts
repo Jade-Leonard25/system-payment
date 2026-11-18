@@ -2,17 +2,19 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/d1";
+import * as schema from "./schema/schema"; // Import your schema definitions
 
 export const createAuth = (d1: D1Database) => {
-  const db = drizzle(d1);
+  // Pass the schema to Drizzle so it knows about your tables and relations
+  const db = drizzle(d1, { schema });
   
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: "sqlite",
-      // Map Better Auth's expected tables to your existing Drizzle schema tables
+      // Map Better Auth fields/tables to your custom Drizzle schema objects
       schema: {
-        user: "user_admin",
-        session: "session",
+        user: schema.userAdmin,
+        session: schema.session,
       },
     }),
     emailAndPassword: {
@@ -20,6 +22,6 @@ export const createAuth = (d1: D1Database) => {
       minPasswordLength: 6,
     },
     // Add trusted origins or CORS settings if necessary
-    trustedOrigins: ["http://localhost:5173"],
+    trustedOrigins:["electron_payroll://http://localhost:5173"]
   });
 };
