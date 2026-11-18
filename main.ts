@@ -11,20 +11,20 @@ type Bindings = {
 };
 
 const server = new Hono<{ Bindings: Bindings }>();
-
 server.use(
   "*",
   cors({
     origin: (origin) => {
       const allowedOrigins = [
-        "electron_payroll://http://localhost:5173",
         "http://localhost:5173",
+        "electron_payroll://app",
+        "electron_payroll://http://localhost:5173",
       ];
-      
-      if (!origin || allowedOrigins.includes(origin)) {
-        return origin || "electron_payroll://http://localhost:5173";
+
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("electron_payroll://")) {
+        return origin || "http://localhost:5173";
       }
-      
+
       return null;
     },
     allowHeaders: ["Content-Type", "Authorization"],
