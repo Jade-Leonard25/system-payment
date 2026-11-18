@@ -15,13 +15,18 @@ export const createAuth = (d1: D1Database) => {
       schema: {
         user: schema.userAdmin,
         session: schema.session,
+        account: schema.account,         // 👈 Required for password storage
+        verification: schema.verification, // 👈 Required for auth tokens/verification
       },
     }),
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 6,
     },
-    // Add trusted origins or CORS settings if necessary
-    trustedOrigins:["electron_payroll://http://localhost:5173"]
+    // Fixed trusted origins list
+    trustedOrigins: [
+      "http://localhost:5173",
+      "electron_payroll://*"
+    ]
   });
 };
