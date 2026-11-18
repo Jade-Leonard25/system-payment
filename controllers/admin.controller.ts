@@ -3,12 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { userAdmin } from "../schema/schema";
 import { generateCustomId } from "../customID";
-import {z} from'zod;
-const adminRegisterSchema = z.object({
-    id:z.string("id").null(),
-    name:z.string("name").min(1).max(50),
-    email:z.strin
-})
+
 type Bindings = { DB: D1Database };
 const adminController = new Hono<{ Bindings: Bindings }>();
 
