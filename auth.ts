@@ -8,6 +8,7 @@ export const createAuth = (d1: D1Database) => {
   const db = drizzle(d1, { schema });
   
   return betterAuth({
+    baseURL: "https://system-payroll-api.developmentserver160.workers.dev", // 👈 Add your backend worker URL here
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema: {
@@ -17,7 +18,6 @@ export const createAuth = (d1: D1Database) => {
         verification: schema.verification,
       },
     }),
-    // 👈 Moved 'advanced' here to the root level
     advanced: {
       cookie: { 
         secure: true, 
