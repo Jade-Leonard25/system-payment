@@ -1,0 +1,28 @@
+{
+  "name": "server",
+  "private": true,
+  "scripts": {
+    "typecheck": "bun check",
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261118.1",
+    "@types/bun": "latest",
+    "wrangler": "^4.164.0"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  },
+  "dependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "axios": "^1.21.1",
+    "bcryptjs": "^3.0.3",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4",
+    "helmet": "^8.3.0",
+    "hono": "^4.13.19"
+  }
+}

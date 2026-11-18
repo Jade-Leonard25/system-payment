@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "system-payroll-api",
+  "main": "main.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "system-payroll",
+      "database_id": "96829657-7632-42a5-86c0-d037c2cf501c",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}

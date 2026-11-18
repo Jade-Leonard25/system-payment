@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Secrets & Environment Variables (CRITICAL - Never push to GitHub)
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# Cloudflare Wrangler Local State & Local D1 SQLite Files
+.wrangler/
+wrangler.toml.bak
+
+# Electron Build & Packaging Outputs
+dist/
+dist-electron/
+out/
+release/
+build/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.snap
+
+# Local Databases & Logs
+*.sqlite
+*.sqlite3
+*.db
+*.log
+npm-debug.log*
+bun.lockb.bak
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
