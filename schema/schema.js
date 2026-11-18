@@ -137,10 +137,13 @@ export const sessionRelations = relations(session, ({ one }) => ({
     references: [userAdmin.id],
   }),
 }));
-
 export const employeeRelations = relations(employees, ({ one }) => ({
-  user: one(userAdmin, {
-    fields: [employees.userId],
+  admin: one(userAdmin, {
+    fields: [employees.adminId],
     references: [userAdmin.id],
+  }),
+  company: one(company, {
+    fields: [employees.companyId],
+    references: [company.id],
   }),
 }));
