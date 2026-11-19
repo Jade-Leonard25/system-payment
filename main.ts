@@ -17,7 +17,8 @@ server.use(
     origin: (origin) => {
       const allowedOrigins = [
         "http://localhost:5173",
-      "http://localhost:5173",     // Vite dev server (tauri dev)
+        "http://localhost:1420/",
+        "http://localhost:5173",     // Vite dev server (tauri dev)
   "http://127.0.0.1:5173",     // Alternative dev loopback
   "http://tauri.localhost",    // Tauri v2 production origin
   "https://tauri.localhost",   // Tauri v2 HTTPS scheme (if enabled)
