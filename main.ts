@@ -33,6 +33,7 @@ server.use(
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
+    exposeHeaders:["set-auth-token"]
   })
 );
 
