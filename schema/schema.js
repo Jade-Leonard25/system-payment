@@ -17,7 +17,7 @@ export const session = sqliteTable("session", {
   userId: text("user_id")
     .notNull()
     .references(() => userAdmin.id, { onDelete: "cascade" }),
-  token: text("token").notNull(),
+  token: text("token").notNull().unique(),
   expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
@@ -38,7 +38,7 @@ export const account = sqliteTable("account", {
   accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
   refreshTokenExpiresAt: integer("refresh_token_expires_at", { mode: "timestamp" }),
   scope: text("scope"),
-  password: text("password"), // 👈 Password lives here now for Better Auth
+  password: text("password"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
@@ -81,7 +81,7 @@ export const company = sqliteTable("company", {
 
 export const employees = sqliteTable("employees", {
   id: text("id").primaryKey(),
-  adminId: text("admin_id").references(() => userAdmin.id),
+  adminId: text("admin_id").references(() => userAdmin.id, { onDelete: "cascade" }),
   companyId: text("company_id")
     .notNull()
     .references(() => company.id, { onDelete: "cascade" }),
@@ -143,6 +143,7 @@ export const attendanceLogs = sqliteTable("attendance_logs", {
 export const userRelations = relations(userAdmin, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
+  companies: many(company),
   employees: many(employees),
 }));
 
@@ -160,7 +161,15 @@ export const accountRelations = relations(account, ({ one }) => ({
   }),
 }));
 
-export const employeeRelations = relations(employees, ({ one }) => ({
+export const companyRelations = relations(company, ({ one, many }) => ({
+  admin: one(userAdmin, {
+    fields: [company.adminId],
+    references: [userAdmin.id],
+  }),
+  employees: many(employees),
+}));
+
+export const employeeRelations = relations(employees, ({ one, many }) => ({
   admin: one(userAdmin, {
     fields: [employees.adminId],
     references: [userAdmin.id],
@@ -168,5 +177,13 @@ export const employeeRelations = relations(employees, ({ one }) => ({
   company: one(company, {
     fields: [employees.companyId],
     references: [company.id],
+  }),
+  attendanceLogs: many(attendanceLogs),
+}));
+
+export const attendanceLogRelations = relations(attendanceLogs, ({ one }) => ({
+  employee: one(employees, {
+    fields: [attendanceLogs.employeeId],
+    references: [employees.id],
   }),
 }));

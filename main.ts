@@ -17,8 +17,12 @@ server.use(
     origin: (origin) => {
       const allowedOrigins = [
         "http://localhost:5173",
-        "electron_payroll://app",
-        "electron_payroll://http://localhost:5173",
+      "http://localhost:5173",     // Vite dev server (tauri dev)
+  "http://127.0.0.1:5173",     // Alternative dev loopback
+  "http://tauri.localhost",    // Tauri v2 production origin
+  "https://tauri.localhost",   // Tauri v2 HTTPS scheme (if enabled)
+  // If you register a custom protocol/deep-link scheme in Tauri (e.g. tauri-payroll):
+  "tauri-payroll://*",
       ];
 
       if (!origin || allowedOrigins.includes(origin) || origin.startsWith("electron_payroll://")) {
