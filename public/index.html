@@ -56,6 +56,29 @@
         box-shadow: 0 8px 24px #1720330a;
       }
 
+      .signin {
+        max-width: 440px;
+        margin: 30px 0 18px;
+        padding: 22px;
+      }
+
+      .signin h2 { margin: 0 0 8px; font-size: 1.15rem; }
+      .signin p { margin: 0 0 18px; color: #667085; }
+      .field { display: grid; gap: 7px; margin-bottom: 14px; }
+      .field label { font-size: .9rem; font-weight: 600; }
+      .field input {
+        width: 100%;
+        border: 1px solid #cfd7e4;
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: inherit;
+        font: inherit;
+      }
+
+      .field input:focus { outline: 2px solid #315ee766; border-color: #315ee7; }
+      #signin-message { min-height: 1.2em; margin: 12px 0 0; color: #b42318; font-size: .9rem; }
+      #refresh { flex: 0 0 auto; }
+
       .message { padding: 20px; color: #667085; }
       .message.error { color: #b42318; }
       .table-wrap { overflow-x: auto; }
@@ -94,15 +117,30 @@
           <h1>Key Products</h1>
           <p class="subtitle">Testing view of key records stored in the database.</p>
         </div>
-        <button id="refresh" type="button">Refresh</button>
+        <button id="refresh" type="button" hidden>Refresh</button>
       </header>
+
+      <form id="signin" class="panel signin">
+        <h2>Admin sign in</h2>
+        <p>Use your existing administrator email and password.</p>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button id="signin-button" type="submit">Sign in</button>
+        <p id="signin-message" role="alert" aria-live="polite"></p>
+      </form>
 
       <section class="toolbar" aria-live="polite">
         <strong id="summary">Loading keys…</strong>
         <span class="muted">Key values and bcrypt hashes are never shown.</span>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="records-panel" hidden>
         <div id="message" class="message">Loading key products…</div>
         <div id="table-wrap" class="table-wrap" hidden>
           <table>
@@ -119,7 +157,7 @@
         </div>
       </section>
 
-      <p class="notice muted">Sign in as an administrator in this browser to access the records.</p>
+      <p class="notice muted">This testing page is public. Key records are only returned to signed-in administrators.</p>
     </main>
 
     <script>
@@ -128,6 +166,10 @@
       const recordsElement = document.querySelector("#records");
       const summary = document.querySelector("#summary");
       const refreshButton = document.querySelector("#refresh");
+      const signinForm = document.querySelector("#signin");
+      const signinButton = document.querySelector("#signin-button");
+      const signinMessage = document.querySelector("#signin-message");
+      const recordsPanel = document.querySelector("#records-panel");
 
       function cell(text, tagName = "td") {
         const element = document.createElement(tagName);
@@ -150,13 +192,21 @@
           });
           if (!response.ok) {
             if (response.status === 401 || response.status === 403) {
-              throw new Error("Sign in as an administrator, then refresh this page.");
+              signinForm.hidden = false;
+              refreshButton.hidden = true;
+              recordsPanel.hidden = true;
+              summary.textContent = "Administrator sign in required";
+              message.hidden = true;
+              return;
             }
             const result = await response.json().catch(() => null);
             throw new Error(result?.error || `Request failed (${response.status})`);
           }
 
           const result = await response.json();
+          signinForm.hidden = true;
+          refreshButton.hidden = false;
+          recordsPanel.hidden = false;
           recordsElement.replaceChildren();
 
           for (const record of result.data) {
@@ -186,6 +236,34 @@
           refreshButton.disabled = false;
         }
       }
+
+      signinForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        signinButton.disabled = true;
+        signinMessage.textContent = "";
+
+        const formData = new FormData(signinForm);
+        try {
+          const response = await fetch("/api/auth/sign-in/email", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+              email: formData.get("email"),
+              password: formData.get("password"),
+            }),
+          });
+          const result = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(result?.message || result?.error || `Sign in failed (${response.status})`);
+          }
+          await loadKeys();
+        } catch (error) {
+          signinMessage.textContent = error instanceof Error ? error.message : "Unable to sign in.";
+        } finally {
+          signinButton.disabled = false;
+        }
+      });
 
       refreshButton.addEventListener("click", loadKeys);
       loadKeys();
