@@ -82,20 +82,6 @@
       .message { padding: 20px; color: #667085; }
       .message.error { color: #b42318; }
       .table-wrap { overflow-x: auto; }
-      .key-export {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 12px;
-        padding: 16px;
-        border-bottom: 1px solid #edf0f5;
-        background: #fcfdff;
-      }
-
-      .key-export label { font-weight: 650; }
-      .key-export input { max-width: 100%; }
-      #key-file-status { color: #667085; font-size: .9rem; }
-
       table { width: 100%; border-collapse: collapse; text-align: left; }
       th, td { padding: 13px 16px; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
       th { color: #667085; background: #fafbfc; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; }
@@ -150,16 +136,11 @@
 
       <section class="toolbar" aria-live="polite">
         <strong id="summary">Loading keys…</strong>
-        <span class="muted">Load the private seed export to view full key values.</span>
+        <span class="muted">Full keys are visible to signed-in administrators.</span>
       </section>
 
       <section class="panel" id="records-panel" hidden>
         <div id="message" class="message">Loading key products…</div>
-        <div class="key-export">
-          <label for="key-file">Show full keys from seed export</label>
-          <input id="key-file" type="file" accept=".txt,text/plain">
-          <span id="key-file-status" aria-live="polite">The file is read in this browser and is not uploaded.</span>
-        </div>
         <div id="table-wrap" class="table-wrap" hidden>
           <table>
             <thead>
@@ -188,9 +169,6 @@
       const signinButton = document.querySelector("#signin-button");
       const signinMessage = document.querySelector("#signin-message");
       const recordsPanel = document.querySelector("#records-panel");
-      const keyFileInput = document.querySelector("#key-file");
-      const keyFileStatus = document.querySelector("#key-file-status");
-      let exportedKeys = new Map();
       let currentRecords = [];
 
       function cell(text, tagName = "td") {
@@ -204,7 +182,7 @@
 
         for (const record of records) {
           const row = document.createElement("tr");
-          const key = exportedKeys.get(record.keySelector) || `•••-${record.keySelector}`;
+          const key = record.key || `Not imported (selector: ${record.keySelector})`;
           row.append(cell(record.id), cell(key));
           const statusCell = document.createElement("td");
           const badge = document.createElement("span");
@@ -287,36 +265,6 @@
           signinMessage.textContent = error instanceof Error ? error.message : "Unable to sign in.";
         } finally {
           signinButton.disabled = false;
-        }
-      });
-
-      keyFileInput.addEventListener("change", async () => {
-        const file = keyFileInput.files?.[0];
-        if (!file) return;
-
-        try {
-          const lines = (await file.text()).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-          const parsedKeys = new Map();
-          for (const key of lines) {
-            if (!/^[a-z0-9]{3}(?:-[a-z0-9]{3}){2}$/i.test(key)) {
-              throw new Error("The selected file contains an invalid key line.");
-            }
-            const selector = key.slice(0, 3).toLowerCase();
-            if (parsedKeys.has(selector)) {
-              throw new Error(`The selected file contains duplicate selector ${selector}.`);
-            }
-            parsedKeys.set(selector, key.toLowerCase());
-          }
-
-          exportedKeys = parsedKeys;
-          renderRecords(currentRecords);
-          const matches = currentRecords.filter((record) => exportedKeys.has(record.keySelector)).length;
-          keyFileStatus.textContent = `Loaded ${parsedKeys.size} keys; matched ${matches} database records. File was not uploaded.`;
-        } catch (error) {
-          exportedKeys = new Map();
-          renderRecords(currentRecords);
-          keyFileInput.value = "";
-          keyFileStatus.textContent = error instanceof Error ? error.message : "Could not read the key export.";
         }
       });
 

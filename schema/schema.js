@@ -143,6 +143,7 @@ export const attendanceLogs = sqliteTable("attendance_logs", {
 export const keyProduct = sqliteTable("key_product", {
   id: text("id").primaryKey(),
   keySelector: text("key_selector").notNull().unique(),
+  keyValue: text("key_value"),
   keyHash: text("key_hash").notNull(),
   status: text("status").notNull().default("active"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),

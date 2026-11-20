@@ -77,6 +77,7 @@ keyProductController.post("/", async (c) => {
   const record = {
     id: crypto.randomUUID(),
     keySelector: generated.keySelector,
+    keyValue: generated.key,
     keyHash: await hashProductKey(generated.key),
     status: "active",
     createdAt: new Date(),
@@ -111,6 +112,7 @@ keyProductController.get("/", async (c) => {
     .select({
       id: keyProduct.id,
       keySelector: keyProduct.keySelector,
+      key: keyProduct.keyValue,
       status: keyProduct.status,
       createdAt: keyProduct.createdAt,
     })

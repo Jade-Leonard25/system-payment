@@ -1,0 +1,1 @@
+ALTER TABLE `key_product` ADD `key_value` text;
