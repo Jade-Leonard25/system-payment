@@ -3,19 +3,29 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { company } from "../schema/schema";
 import { generateCustomId } from "../customID";
+import { createAuth } from "../auth";
 
 type Bindings = { DB: D1Database };
 const companyController = new Hono<{ Bindings: Bindings }>();
 
 // Create a new company
 companyController.post("/", async (c) => {
+  const auth = createAuth(c.env.DB, new URL(c.req.url).origin);
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session) {
+    return c.json({ error: "Authentication required" }, 401);
+  }
+  if (session.user.role !== "admin") {
+    return c.json({ error: "Only administrators can create companies" }, 403);
+  }
+
   const db = drizzle(c.env.DB);
   const body = await c.req.json();
   const now = new Date();
 
   const newCompany = {
     id: generateCustomId(),
-    adminId: body.adminId,
+    adminId: session.user.id,
     name: body.name,
     legalName: body.legalName ?? null,
     address: body.address ?? null,
