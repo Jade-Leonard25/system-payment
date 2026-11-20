@@ -101,6 +101,11 @@ keyProductController.get("/", async (c) => {
   const access = await adminAccess(c);
   if (access) return accessError(c, access);
 
+  const requestedLimit = Number(c.req.query("limit") ?? 100);
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 1000) {
+    return c.json({ error: "Limit must be an integer between 1 and 1000" }, 400);
+  }
+
   const db = drizzle(c.env.DB);
   const records = await db
     .select({
@@ -111,9 +116,9 @@ keyProductController.get("/", async (c) => {
     })
     .from(keyProduct)
     .orderBy(desc(keyProduct.createdAt))
-    .limit(100);
+    .limit(requestedLimit);
 
-  return c.json({ data: records });
+  return c.json({ data: records, count: records.length });
 });
 
 keyProductController.delete("/:id", async (c) => {

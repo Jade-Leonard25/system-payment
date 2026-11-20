@@ -26,7 +26,7 @@ bun run seed
 
 The command defaults to the local database. Use `bun run seed --remote` only when you intend to seed the configured remote D1 database. Generated keys are saved to a git-ignored `seeded-keys-*.txt` file; the database stores only bcrypt hashes and key selectors. Keep the generated file private.
 
-Key verification is available at `POST /api/key-products/verify` with JSON body `{"key":"abc-def-123"}`. Administrators can create keys with `POST /api/key-products`, list up to 100 keys with `GET /api/key-products`, and revoke a key with `DELETE /api/key-products/:id`.
+Key verification is available at `POST /api/key-products/verify` with JSON body `{"key":"abc-def-123"}`. Administrators can create keys with `POST /api/key-products`, list up to 1,000 key records with `GET /api/key-products?limit=1000`, and revoke a key with `DELETE /api/key-products/:id`. The backend serves a testing dashboard at `/` showing the records without exposing full keys or hashes; sign in as an administrator in the same browser first.
 
 Run `bun fmt` to format the code.
 
