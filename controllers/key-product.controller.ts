@@ -4,6 +4,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle } from "drizzle-orm/d1";
 import { and, desc, eq } from "drizzle-orm";
 import { keyProduct } from "../schema/schema";
+import { userAdmin } from "../schema/schema";
 import { createAuth } from "../auth";
 import {
   generateProductKey,
@@ -27,6 +28,10 @@ function accessError(c: Context<{ Bindings: Bindings }>, result: "unauthenticate
   return result === "unauthenticated"
     ? c.json({ error: "Authentication required" }, 401)
     : c.json({ error: "Only administrators can manage product keys" }, 403);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 keyProductController.post("/verify", async (c) => {
@@ -110,6 +115,138 @@ keyProductController.post("/activate", async (c) => {
     keyId: record.id,
     activatedAt,
   });
+});
+
+keyProductController.post("/register-admin", async (c) => {
+  let body: { key?: unknown; name?: unknown; email?: unknown; password?: unknown } | null;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Request body must be valid JSON" }, 400);
+  }
+
+  if (
+    !body ||
+    !isProductKeyFormat(body.key) ||
+    typeof body.name !== "string" ||
+    !body.name.trim() ||
+    typeof body.email !== "string" ||
+    !body.email.trim() ||
+    typeof body.password !== "string" ||
+    body.password.length < 6
+  ) {
+    return c.json(
+      { error: "Provide an activated key, name, valid email, and password with at least 6 characters" },
+      400,
+    );
+  }
+
+  const key = body.key.toLowerCase();
+  const db = drizzle(c.env.DB);
+  const [record] = await db
+    .select({
+      id: keyProduct.id,
+      keyHash: keyProduct.keyHash,
+      status: keyProduct.status,
+    })
+    .from(keyProduct)
+    .where(eq(keyProduct.keySelector, key.slice(0, 3)))
+    .limit(1);
+
+  if (!record || !(await verifyProductKey(key, record.keyHash))) {
+    return c.json({ error: "Invalid product key" }, 401);
+  }
+  if (record.status !== "activated") {
+    return c.json(
+      { error: record.status === "redeemed" ? "This key has already been used to register an account" : "Activate this key before registering" },
+      409,
+    );
+  }
+
+  const [reservation] = await db
+    .update(keyProduct)
+    .set({ status: "registration_pending" })
+    .where(and(eq(keyProduct.id, record.id), eq(keyProduct.status, "activated")))
+    .returning({ id: keyProduct.id });
+
+  if (!reservation) {
+    return c.json({ error: "This key is already being used to register an account" }, 409);
+  }
+
+  const auth = createAuth(c.env.DB, new URL(c.req.url).origin);
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+  const signupRequest = new Request(
+    new URL("/api/auth/sign-up/email", c.req.url).toString(),
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: body.name.trim(),
+        email: body.email.trim(),
+        password: body.password,
+      }),
+    },
+  );
+  const signupResponse = await auth.handler(signupRequest);
+
+  if (!signupResponse.ok) {
+    await db
+      .update(keyProduct)
+      .set({ status: "activated" })
+      .where(and(eq(keyProduct.id, record.id), eq(keyProduct.status, "registration_pending")));
+    return signupResponse;
+  }
+
+  let signupResult: unknown;
+  try {
+    signupResult = await signupResponse.clone().json();
+  } catch {
+    await db
+      .update(keyProduct)
+      .set({ status: "activated" })
+      .where(and(eq(keyProduct.id, record.id), eq(keyProduct.status, "registration_pending")));
+    return c.json({ error: "Registration succeeded without a valid user response" }, 502);
+  }
+
+  if (
+    !isRecord(signupResult) ||
+    !isRecord(signupResult.user) ||
+    typeof signupResult.user.id !== "string"
+  ) {
+    await db
+      .update(keyProduct)
+      .set({ status: "activated" })
+      .where(and(eq(keyProduct.id, record.id), eq(keyProduct.status, "registration_pending")));
+    return c.json({ error: "Registration succeeded without a user ID" }, 502);
+  }
+  const userId = signupResult.user.id;
+
+  const now = new Date();
+  const batchResults = await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE user_admin SET role = 'admin', key_product_id = ?, updated_at = ? WHERE id = ?",
+    ).bind(record.id, Math.floor(now.getTime() / 1000), userId),
+    c.env.DB.prepare(
+      "UPDATE key_product SET status = 'redeemed' WHERE id = ? AND status = 'registration_pending'",
+    ).bind(record.id),
+  ]);
+
+  if (!batchResults[0]?.meta.changes || !batchResults[1]?.meta.changes) {
+    return c.json({ error: "Account was created but the key could not be linked; contact support" }, 500);
+  }
+
+  const responseHeaders = new Headers(signupResponse.headers);
+  responseHeaders.delete("content-length");
+  responseHeaders.set("content-type", "application/json");
+  return new Response(
+    JSON.stringify({
+      ...signupResult,
+      user: { ...signupResult.user, role: "admin", keyProductId: record.id },
+    }),
+    { status: signupResponse.status, headers: responseHeaders },
+  );
 });
 
 keyProductController.post("/", async (c) => {

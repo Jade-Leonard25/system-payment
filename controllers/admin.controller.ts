@@ -10,11 +10,11 @@ const adminController = new Hono<{ Bindings: Bindings }>();
 adminController.post("/", async (c) => {
   const auth = createAuth(c.env.DB, new URL(c.req.url).origin);
   const body = await c.req.json();
-  if (body.role !== "admin" && body.role !== "employee") {
-    return c.json({ error: "Role must be admin or employee" }, 400);
+  if (body.role !== "employee") {
+    return c.json({ error: "Use product-key registration to create an administrator account" }, 400);
   }
 
-  const { role, ...signUpData } = body;
+  const { role: _role, ...signUpData } = body;
   const headers = new Headers(c.req.raw.headers);
   headers.delete("content-length");
   headers.set("content-type", "application/json");
@@ -44,7 +44,7 @@ adminController.post("/", async (c) => {
   const db = drizzle(c.env.DB);
   await db
     .update(userAdmin)
-    .set({ role, updatedAt: new Date() })
+    .set({ role: "employee", updatedAt: new Date() })
     .where(eq(userAdmin.id, userId));
 
   return response;
