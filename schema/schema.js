@@ -140,6 +140,14 @@ export const attendanceLogs = sqliteTable("attendance_logs", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const keyProduct = sqliteTable("key_product", {
+  id: text("id").primaryKey(),
+  keySelector: text("key_selector").notNull().unique(),
+  keyHash: text("key_hash").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 // --- Relations ---
 export const userRelations = relations(userAdmin, ({ many }) => ({
   sessions: many(session),

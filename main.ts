@@ -5,6 +5,7 @@ import companyController from "./controllers/company.controller";
 import employeeController from "./controllers/employee.controller";
 import attendanceController from "./controllers/attendance.controller";
 import adminController from "./controllers/admin.controller";
+import keyProductController from "./controllers/key-product.controller";
 
 type Bindings = {
   DB: D1Database;
@@ -49,5 +50,6 @@ server.route("/api/companies", companyController);
 server.route("/api/employees", employeeController);
 server.route("/api/attendance", attendanceController);
 server.route("/admin", adminController);
+server.route("/api/key-products", keyProductController);
 
 export default server;

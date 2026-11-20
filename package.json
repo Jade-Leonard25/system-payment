@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "typecheck": "bun check",
+    "seed": "bun run seed.ts",
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy"

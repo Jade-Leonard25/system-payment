@@ -9,6 +9,7 @@ node_modules/
 !.env.example
 .dev.vars
 .dev.vars.*
+seeded-keys-*.txt
 
 # Cloudflare Wrangler Local State & Local D1 SQLite Files
 .wrangler/
@@ -39,4 +40,3 @@ bun.lockb.bak
 Thumbs.db
 .vscode/
 .idea/
-
