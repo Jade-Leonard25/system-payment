@@ -39,7 +39,7 @@ server.use(
 
 // Mount Better Auth handler on /api/auth/*
 server.on(["POST", "GET"], "/api/auth/*", (c) => {
-  const auth = createAuth(c.env.DB);
+  const auth = createAuth(c.env.DB, new URL(c.req.url).origin);
   return auth.handler(c.req.raw);
 });
 

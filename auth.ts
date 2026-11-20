@@ -5,11 +5,11 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema/schema";
 
-export const createAuth = (d1: D1Database) => {
+export const createAuth = (d1: D1Database, baseURL: string) => {
   const db = drizzle(d1, { schema });
 
   return betterAuth({
-    baseURL: "https://system-payroll-api.developmentserver160.workers.dev",
+    baseURL,
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema: {
@@ -21,8 +21,7 @@ export const createAuth = (d1: D1Database) => {
     }),
     advanced: {
       cookie: {
-        // Adapts automatically so local HTTP doesn't drop the cookie
-        secure: process.env.NODE_ENV === "production",
+        secure: baseURL.startsWith("https://"),
         sameSite: "none",
       },
     },
