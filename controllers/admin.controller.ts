@@ -15,7 +15,7 @@ adminController.post("/", async (c) => {
   headers.set("content-type", "application/json");
 
   const authRequest = new Request(
-    new URL("/api/auth/sign-up/email", c.req.url),
+    new URL("/api/auth/sign-up/email", c.req.url).toString(),
     {
       method: "POST",
       headers,

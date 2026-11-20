@@ -20,9 +20,9 @@ export const createAuth = (d1: D1Database, baseURL: string) => {
       },
     }),
     advanced: {
-      cookie: {
+      defaultCookieAttributes: {
         secure: baseURL.startsWith("https://"),
-        sameSite: "none",
+        sameSite: baseURL.startsWith("https://") ? "none" : "lax",
       },
     },
     emailAndPassword: {
