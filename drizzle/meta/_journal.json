@@ -36,6 +36,13 @@
       "when": 1795192130134,
       "tag": "0004_store_key_value",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795197746507,
+      "tag": "0005_add_key_activation",
+      "breakpoints": true
     }
   ]
 }

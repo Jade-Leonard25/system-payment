@@ -146,6 +146,7 @@ export const keyProduct = sqliteTable("key_product", {
   keyValue: text("key_value"),
   keyHash: text("key_hash").notNull(),
   status: text("status").notNull().default("active"),
+  activatedAt: integer("activated_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

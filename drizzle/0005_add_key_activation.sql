@@ -1,0 +1,1 @@
+ALTER TABLE `key_product` ADD `activated_at` integer;

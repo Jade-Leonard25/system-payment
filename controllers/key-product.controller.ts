@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle } from "drizzle-orm/d1";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { keyProduct } from "../schema/schema";
 import { createAuth } from "../auth";
 import {
@@ -54,6 +54,62 @@ keyProductController.post("/verify", async (c) => {
   }
 
   return c.json({ valid: true, keyId: record.id });
+});
+
+keyProductController.post("/activate", async (c) => {
+  let body: { key?: unknown } | null;
+  try {
+    body = await c.req.json<{ key?: unknown }>();
+  } catch {
+    return c.json({ error: "Request body must be valid JSON" }, 400);
+  }
+
+  if (!body || !isProductKeyFormat(body.key)) {
+    return c.json({ error: "A valid product key is required" }, 400);
+  }
+
+  const key = body.key.toLowerCase();
+  const db = drizzle(c.env.DB);
+  const [record] = await db
+    .select({
+      id: keyProduct.id,
+      keyHash: keyProduct.keyHash,
+      status: keyProduct.status,
+      activatedAt: keyProduct.activatedAt,
+    })
+    .from(keyProduct)
+    .where(eq(keyProduct.keySelector, key.slice(0, 3)))
+    .limit(1);
+
+  if (!record || !(await verifyProductKey(key, record.keyHash))) {
+    return c.json({ error: "Invalid or inactive product key" }, 401);
+  }
+
+  if (record.status === "activated") {
+    return c.json({ error: "This product key has already been activated" }, 409);
+  }
+
+  if (record.status !== "active") {
+    return c.json({ error: "Invalid or inactive product key" }, 401);
+  }
+
+  const activatedAt = new Date();
+  const [activatedRecord] = await db
+    .update(keyProduct)
+    .set({ status: "activated", activatedAt })
+    .where(and(eq(keyProduct.id, record.id), eq(keyProduct.status, "active")))
+    .returning({ id: keyProduct.id });
+
+  if (!activatedRecord) {
+    return c.json({ error: "This product key has already been activated or is no longer active" }, 409);
+  }
+
+  return c.json({
+    success: true,
+    activated: true,
+    keyId: record.id,
+    activatedAt,
+  });
 });
 
 keyProductController.post("/", async (c) => {
