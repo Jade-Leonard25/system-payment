@@ -2,9 +2,29 @@ import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { userAdmin } from "../schema/schema";
+import { createAuth } from "../auth";
 
 type Bindings = { DB: D1Database };
 const adminController = new Hono<{ Bindings: Bindings }>();
+
+adminController.post("/", async (c) => {
+  const auth = createAuth(c.env.DB, new URL(c.req.url).origin);
+  const body = await c.req.json();
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+
+  const authRequest = new Request(
+    new URL("/api/auth/sign-up/email", c.req.url),
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    },
+  );
+
+  return auth.handler(authRequest);
+});
 
 // Get admin profile by ID
 adminController.get("/:id", async (c) => {
