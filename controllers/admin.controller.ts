@@ -10,6 +10,11 @@ const adminController = new Hono<{ Bindings: Bindings }>();
 adminController.post("/", async (c) => {
   const auth = createAuth(c.env.DB, new URL(c.req.url).origin);
   const body = await c.req.json();
+  if (body.role !== "admin" && body.role !== "employee") {
+    return c.json({ error: "Role must be admin or employee" }, 400);
+  }
+
+  const { role, ...signUpData } = body;
   const headers = new Headers(c.req.raw.headers);
   headers.delete("content-length");
   headers.set("content-type", "application/json");
@@ -19,11 +24,30 @@ adminController.post("/", async (c) => {
     {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(signUpData),
     },
   );
 
-  return auth.handler(authRequest);
+  const response = await auth.handler(authRequest);
+  if (!response.ok) {
+    return response;
+  }
+
+  const result = (await response.clone().json()) as {
+    user?: { id?: string };
+  };
+  const userId = result.user?.id;
+  if (!userId) {
+    return c.json({ error: "Account created without a user ID in the response" }, 500);
+  }
+
+  const db = drizzle(c.env.DB);
+  await db
+    .update(userAdmin)
+    .set({ role, updatedAt: new Date() })
+    .where(eq(userAdmin.id, userId));
+
+  return response;
 });
 
 // Get admin profile by ID

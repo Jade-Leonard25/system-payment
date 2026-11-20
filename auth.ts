@@ -29,6 +29,16 @@ export const createAuth = (d1: D1Database, baseURL: string) => {
       enabled: true,
       minPasswordLength: 6,
     },
+    user: {
+      additionalFields: {
+        role: {
+          type: "string",
+          required: false,
+          defaultValue: "employee",
+          input: false,
+        },
+      },
+    },
     plugins: [bearer()],
     trustedOrigins: [
       "http://localhost:1420",
