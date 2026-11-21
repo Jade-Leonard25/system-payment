@@ -9,6 +9,7 @@ import adminController from "./controllers/admin.controller";
 import keyProductController from "./controllers/key-product.controller";
 import auditController from "./controllers/audit.controller";
 import ledgerController from "./controllers/ledger.controller";
+import salesController from "./controllers/sales.controller";
 
 type Bindings = {
   DB: D1Database;
@@ -35,7 +36,7 @@ server.use(
 
       return undefined;
     },
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
     allowMethods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     exposeHeaders:["set-auth-token"]
@@ -55,6 +56,7 @@ server.route("/api/employees", employeeController);
 server.route("/api/attendance", attendanceController);
 server.route("/api/audit", auditController);
 server.route("/api/ledger", ledgerController);
+server.route("/api/sales", salesController);
 server.route("/admin", adminController);
 server.route("/api/key-products", keyProductController);
 

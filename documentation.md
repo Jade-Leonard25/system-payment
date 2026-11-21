@@ -83,6 +83,26 @@ The schema defines Better Auth tables and application tables. Product-key relate
 
 Migration files are applied in journal order, recorded in `drizzle/meta/_journal.json`. Do not edit an already-applied migration to change a deployed database; create a new migration instead.
 
+## Sales and Receivables
+
+The Sales & Receivables API is mounted at `/api/sales`. Its customers, invoices,
+invoice lines, allocations, payments, credits, and idempotency keys are scoped
+to `company_id`. Sales roles use company-scoped `sales.view`, `sales.create`,
+`sales.issue`, and `sales.payment` grants. Customer payments require an
+`Idempotency-Key` header; reusing a key with a different payload is rejected.
+
+Amounts are stored as integer minor units with an ISO currency code. Quantity
+is stored to three decimal places. Line extensions round half-up to the nearest
+minor unit; tax rounds half-up per invoice to the nearest minor unit. The tax
+rate is configurable per invoice and defaults to zero. Philippine tax settings
+and invoice tax treatment are [VERIFY] and should be reviewed with a licensed
+Philippine CPA or tax counsel.
+
+Invoice payment status is derived from allocations, never edited directly;
+credit notes reduce the outstanding balance but do not count as cash
+allocations. A credit note allocates its tax portion proportionally to the
+original invoice subtotal, rounded half-up to a minor unit.
+
 ## Authentication
 
 Authentication is configured in `auth.ts` using Better Auth with the Drizzle D1 adapter:

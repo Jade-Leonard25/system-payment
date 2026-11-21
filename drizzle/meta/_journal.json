@@ -85,6 +85,20 @@
       "when": 1795306478074,
       "tag": "0011_ledger_core",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795310000000,
+      "tag": "0012_ledger_company_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795311000000,
+      "tag": "0013_sales_receivables",
+      "breakpoints": true
     }
   ]
 }

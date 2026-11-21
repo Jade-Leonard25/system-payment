@@ -110,6 +110,24 @@ ledgerController.put("/accounts/:id", async (c) => {
   const parsed = accountSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid account", details: parsed.error.flatten() }, 400);
   const id = c.req.param("id");
+  if (parsed.data.parentId === id) {
+    return c.json({ error: "An account cannot be its own parent" }, 400);
+  }
+  if (parsed.data.parentId) {
+    const descendantParent = await c.env.DB.prepare(
+      `WITH RECURSIVE descendants(id) AS (
+         SELECT id FROM accounts WHERE company_id = ? AND parent_id = ?
+         UNION
+         SELECT a.id FROM accounts a
+         JOIN descendants d ON a.parent_id = d.id
+         WHERE a.company_id = ?
+       )
+       SELECT 1 AS found FROM descendants WHERE id = ? LIMIT 1`,
+    ).bind(companyId, id, companyId, parsed.data.parentId).first();
+    if (descendantParent) {
+      return c.json({ error: "An account cannot be moved under one of its descendants" }, 400);
+    }
+  }
   const before = await c.env.DB.prepare(
     `SELECT id, code, name, type, normal_balance AS normalBalance,
             is_header AS isHeader, is_postable AS isPostable,
@@ -279,6 +297,39 @@ ledgerController.post("/entries", async (c) => {
     after: { id, entryDate: data.entryDate, currency: data.currency, totalDebitMinor: debit, totalCreditMinor: credit },
   });
   return c.json({ success: true, data: { id, status: "draft", totalDebitMinor: debit, totalCreditMinor: credit } }, 201);
+});
+
+ledgerController.post("/entries/:id/submit", async (c) => {
+  let body: Record<string, unknown> = {};
+  try {
+    body = await c.req.json<Record<string, unknown>>();
+  } catch {
+    return c.json({ error: "Request body must be valid JSON" }, 400);
+  }
+  const companyId = typeof body.companyId === "string" ? body.companyId : "";
+  const access = await permission(c, companyId, "ledger.create");
+  if ("response" in access) return access.response;
+
+  const id = c.req.param("id");
+  const entry = await c.env.DB.prepare(
+    `SELECT status FROM journal_entries WHERE company_id = ? AND id = ? LIMIT 1`,
+  ).bind(companyId, id).first<{ status: string }>();
+  if (!entry) return c.json({ error: "Journal entry not found" }, 404);
+  if (entry.status !== "draft") {
+    return c.json({ error: "Only draft entries can be submitted for approval" }, 409);
+  }
+
+  const updateStatement = c.env.DB.prepare(
+    `UPDATE journal_entries
+     SET status = 'pending approval', updated_at = ?
+     WHERE company_id = ? AND id = ? AND status = 'draft'`,
+  ).bind(new Date().toISOString(), companyId, id);
+  await appendAuditEvent(c.env.DB, {
+    companyId, actorId: access.userId, ...auditRequestMetadata(c.req.raw.headers),
+    action: "ledger.entry.submit_for_approval", resourceType: "journal_entry", resourceId: id,
+    before: { status: "draft" }, after: { status: "pending approval" },
+  }, [{ companyId, statement: updateStatement, expectedChanges: 1 }]);
+  return c.json({ success: true, data: { id, status: "pending approval" } });
 });
 
 ledgerController.post("/entries/:id/post", async (c) => {
