@@ -117,7 +117,7 @@ export default function Dashboard() {
     allowed: false,
     error: "",
   });
-  const [salesAccess, setSalesAccess] = useState({ companyId: "", allowed: false, error: "" });
+  const [salesAccess, setSalesAccess] = useState({ companyId: "", allowed: false, canCreate: false, canIssue: false, canRecordPayment: false, error: "" });
   const [salesSummary, setSalesSummary] = useState({ companyId: "", data: null, error: "" });
   const [rosterEmployees, setRosterEmployees] = useState([]);
   const [attendanceLogs, setAttendanceLogs] = useState([]);
@@ -138,6 +138,7 @@ export default function Dashboard() {
     auditAccess.companyId === selectedCompanyId ? auditAccess.error : "";
   const canViewSales = salesAccess.companyId === selectedCompanyId && salesAccess.allowed;
   const isCheckingSalesAccess = Boolean(selectedCompanyId) && salesAccess.companyId !== selectedCompanyId;
+  const activeCompany = companies.find((company) => company.id === selectedCompanyId);
   const today = getLocalClock().logDate;
   const attendanceLoaded =
     Boolean(selectedCompanyId) &&
@@ -249,12 +250,22 @@ export default function Dashboard() {
     const query = new URLSearchParams({ companyId: selectedCompanyId });
     apiRequest(`/api/sales/access?${query}`)
       .then((result) => {
-        if (active) setSalesAccess({ companyId: selectedCompanyId, allowed: result?.allowed === true, error: "" });
+        if (active) setSalesAccess({
+          companyId: selectedCompanyId,
+          allowed: result?.allowed === true,
+          canCreate: result?.canCreate === true,
+          canIssue: result?.canIssue === true,
+          canRecordPayment: result?.canRecordPayment === true,
+          error: "",
+        });
       })
       .catch((accessError) => {
         if (active) setSalesAccess({
           companyId: selectedCompanyId,
           allowed: false,
+          canCreate: false,
+          canIssue: false,
+          canRecordPayment: false,
           error: accessError instanceof Error ? accessError.message : "Could not verify Sales & Receivables access.",
         });
       });
@@ -492,7 +503,11 @@ export default function Dashboard() {
           ) : isSalesPage ? (
             <SalesReceivablesPage
               companyId={selectedCompanyId}
+              company={activeCompany}
               canView={canViewSales}
+              canCreate={salesAccess.companyId === selectedCompanyId && salesAccess.canCreate}
+              canIssue={salesAccess.companyId === selectedCompanyId && salesAccess.canIssue}
+              canRecordPayment={salesAccess.companyId === selectedCompanyId && salesAccess.canRecordPayment}
               isCheckingAccess={isCheckingSalesAccess}
               permissionError={salesAccess.companyId === selectedCompanyId ? salesAccess.error : ""}
             />
