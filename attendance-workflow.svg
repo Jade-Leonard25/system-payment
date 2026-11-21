@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1120" viewBox="0 0 1200 1120" role="img" aria-labelledby="title description">
   <title id="title">Time-in and time-out workflow</title>
-  <desc id="description">An external timekeeping system authenticates clock-in and clock-out requests with a dedicated bearer token. The API validates the employee and attendance record, calculates worked and overtime hours, and lets an authenticated company admin view attendance.</desc>
+  <desc id="description">An administrator with an active session clocks employees in and out. The API checks company ownership and employee status, calculates worked and overtime hours, and returns attendance records to that administrator.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
       <path d="M0 0L10 5L0 10Z" fill="#52627a"/>
@@ -26,27 +26,27 @@
 
   <rect class="bg" width="1200" height="1120"/>
   <text class="title" x="48" y="52">Attendance: time-in to time-out</text>
-  <text class="subtitle" x="48" y="82">The timekeeping integration writes attendance; an admin session is used only to view company records.</text>
+  <text class="subtitle" x="48" y="82">An authenticated company admin records employee time-in and time-out; ownership is checked on every request.</text>
 
   <rect class="lane" x="32" y="112" width="1136" height="256" rx="18"/>
   <text class="lane-title" x="56" y="143">1. Clock in</text>
 
   <rect class="box blue" x="64" y="172" width="220" height="128"/>
-  <text class="box-title" x="84" y="200">Timekeeping system</text>
-  <text class="text" x="84" y="228">Sends employeeId,</text>
-  <text class="text" x="84" y="250">logDate, timeInMinutes</text>
+  <text class="box-title" x="84" y="200">Admin dashboard</text>
+  <text class="text" x="84" y="228">Selects an active</text>
+  <text class="text" x="84" y="250">employee and clocks in</text>
   <text class="text" x="84" y="272">+ Bearer API token</text>
 
   <rect class="box" x="354" y="172" width="220" height="128"/>
-  <text class="box-title" x="374" y="200">Authenticate request</text>
-  <text class="text" x="374" y="228">Token must match the</text>
-  <text class="text" x="374" y="250">configured secret.</text>
+  <text class="box-title" x="374" y="200">Check admin session</text>
+  <text class="text" x="374" y="228">Session must be active</text>
+  <text class="text" x="374" y="250">and role must be admin.</text>
   <text class="small" x="374" y="276">Missing/invalid: reject</text>
 
   <rect class="box" x="644" y="172" width="220" height="128"/>
   <text class="box-title" x="664" y="200">Validate clock-in</text>
-  <text class="text" x="664" y="228">Employee must be active;</text>
-  <text class="text" x="664" y="250">no open log for that date.</text>
+  <text class="text" x="664" y="228">Employee must be active</text>
+  <text class="text" x="664" y="250">and in admin's company.</text>
   <text class="small" x="664" y="276">Invalid/duplicate: reject</text>
 
   <rect class="box green" x="934" y="172" width="202" height="128"/>
@@ -64,21 +64,21 @@
   <text class="lane-title" x="56" y="421">2. Clock out</text>
 
   <rect class="box blue" x="64" y="452" width="220" height="142"/>
-  <text class="box-title" x="84" y="480">Timekeeping system</text>
-  <text class="text" x="84" y="508">Sends log ID and</text>
-  <text class="text" x="84" y="530">timeOutMinutes</text>
+  <text class="box-title" x="84" y="480">Admin dashboard</text>
+  <text class="text" x="84" y="508">Selects employee's open</text>
+  <text class="text" x="84" y="530">log and clocks out</text>
   <text class="text" x="84" y="552">+ Bearer API token</text>
 
   <rect class="box" x="354" y="452" width="220" height="142"/>
-  <text class="box-title" x="374" y="480">Authenticate request</text>
-  <text class="text" x="374" y="508">Token must match the</text>
-  <text class="text" x="374" y="530">configured secret.</text>
+  <text class="box-title" x="374" y="480">Check admin session</text>
+  <text class="text" x="374" y="508">Session must be active</text>
+  <text class="text" x="374" y="530">and own the employee.</text>
   <text class="small" x="374" y="560">Missing/invalid: reject</text>
 
   <rect class="box" x="644" y="452" width="220" height="142"/>
   <text class="box-title" x="664" y="480">Find open log</text>
-  <text class="text" x="664" y="508">Log must exist and have</text>
-  <text class="text" x="664" y="530">no clock-out yet.</text>
+  <text class="text" x="664" y="508">Log must exist, be open,</text>
+  <text class="text" x="664" y="530">and belong to admin.</text>
   <text class="small" x="664" y="560">Invalid time/log: reject</text>
 
   <rect class="box green" x="934" y="452" width="202" height="142"/>
@@ -115,6 +115,6 @@
 
   <rect class="box red" x="112" y="956" width="976" height="104"/>
   <text class="box-title" x="136" y="986">Important security boundary</text>
-  <text class="text" x="136" y="1014">The integration token is a machine credential for attendance writes only. Do not send an admin password or admin session to the timekeeping system.</text>
-  <text class="small" x="136" y="1038">A shared integration token authenticates the system, not the individual employee using it.</text>
+  <text class="text" x="136" y="1014">All clock-in and clock-out writes require an active admin session and are restricted to the admin's own company.</text>
+  <text class="small" x="136" y="1038">Unauthenticated requests and attempts to access another company's employees are rejected.</text>
 </svg>

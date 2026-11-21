@@ -98,26 +98,20 @@ The Hono application in `main.ts` also has a CORS allowlist. When adding a brows
 
 ## Attendance Time-in and Time-out
 
-The attendance workflow separates machine writes from administrator reads:
+Attendance clock-in and clock-out are controlled by an authenticated administrator session:
 
 ![Attendance time-in/time-out workflow](./attendance-workflow.svg)
 
-The external timekeeping integration uses a dedicated `ATTENDANCE_API_TOKEN` bearer token for clock-in and clock-out. Configure it as a Cloudflare secret; never put the secret in source code or send an administrator password/session to the integration:
+### Administrator endpoints
 
-```bash
-bunx wrangler secret put ATTENDANCE_API_TOKEN
-```
-
-### Integration endpoints
-
-Both write endpoints require `Authorization: Bearer <ATTENDANCE_API_TOKEN>`.
+All attendance write endpoints require a valid Better Auth administrator session. Each write is restricted to employees in a company owned by that admin.
 
 | Method and path | Request input | Purpose |
 |---|---|---|
-| `POST /api/attendance/clock-in` | JSON: `{"employeeId":"...","logDate":"YYYY-MM-DD","timeInMinutes":540,"shiftStartMinutes":480}` | Records a clock-in for an active employee. `shiftStartMinutes` is optional and defaults to 480 (08:00). The response includes the attendance log ID, needed to clock out. A second open log for that employee and date is rejected. |
-| `PUT /api/attendance/clock-out/:id` | JSON: `{"timeOutMinutes":1020,"breakMinutes":60}` | Closes an open attendance log. `breakMinutes` is optional and defaults to 60. The API calculates total hours and overtime; a log can only be clocked out once. |
+| `POST /api/attendance/admin/clock-in` | JSON: `{"employeeId":"...","companyId":"...","logDate":"YYYY-MM-DD","timeInMinutes":540,"shiftStartMinutes":480}` | Records an active employee's clock-in only if the admin owns the company. The standard shift starts at 08:00; an employee cannot have another open attendance record. |
+| `PUT /api/attendance/admin/clock-out/:id` | JSON: `{"timeOutMinutes":1020,"breakMinutes":60}` | Closes an open attendance record only if it belongs to the admin's company. The standard break is 60 minutes and overtime is calculated after 8 worked hours. Overnight shifts are supported. |
 
-Clock values are minutes after midnight (0–1439). For example, 09:00 is `540` and 17:00 is `1020`.
+Clock values are local minutes after midnight (0–1439). For example, 09:00 is `540` and 17:00 is `1020`. The desktop dashboard records time from the local system clock. Unauthenticated requests and machine-token writes are not accepted.
 
 ### Administrator read endpoints
 

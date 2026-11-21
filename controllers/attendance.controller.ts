@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import type { Context } from "hono";
 import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq, isNull } from "drizzle-orm";
@@ -7,42 +6,9 @@ import { attendanceLogs, company, employees } from "../schema/schema";
 import { generateCustomId } from "../customID";
 import { requireAdmin } from "./admin-access";
 
-type Bindings = {
-  DB: D1Database;
-  ATTENDANCE_API_TOKEN: string;
-};
+type Bindings = { DB: D1Database };
 
 const attendanceController = new Hono<{ Bindings: Bindings }>();
-
-function matchesToken(supplied: string, expected: string): boolean {
-  const suppliedBytes = new TextEncoder().encode(supplied);
-  const expectedBytes = new TextEncoder().encode(expected);
-  let difference = suppliedBytes.length ^ expectedBytes.length;
-  const length = Math.max(suppliedBytes.length, expectedBytes.length);
-  for (let index = 0; index < length; index += 1) {
-    difference |=
-      (suppliedBytes[index] ?? 0) ^ (expectedBytes[index] ?? 0);
-  }
-  return difference === 0;
-}
-
-function requireAttendanceToken(c: Context<{ Bindings: Bindings }>) {
-  const expectedToken = c.env.ATTENDANCE_API_TOKEN;
-  if (!expectedToken) {
-    return c.json({ error: "Attendance API is not configured" }, 503);
-  }
-
-  const authorization = c.req.header("Authorization") ?? "";
-  const prefix = "Bearer ";
-  if (!authorization.startsWith(prefix)) {
-    return c.json({ error: "Attendance API token required" }, 401);
-  }
-
-  if (!matchesToken(authorization.slice(prefix.length), expectedToken)) {
-    return c.json({ error: "Invalid attendance API token" }, 401);
-  }
-  return null;
-}
 
 function isClockMinute(value: unknown): value is number {
   return Number.isInteger(value) && typeof value === "number" && value >= 0 && value < 1440;
@@ -52,16 +18,23 @@ function isLogDate(value: unknown): value is string {
   return (
     typeof value === "string" &&
     /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-    !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+    (() => {
+      const parsed = new Date(`${value}T00:00:00Z`);
+      return (
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === value
+      );
+    })()
   );
 }
 
-attendanceController.post("/clock-in", async (c) => {
-  const tokenError = requireAttendanceToken(c);
-  if (tokenError) return tokenError;
+attendanceController.post("/admin/clock-in", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
 
   let body: {
     employeeId?: unknown;
+    companyId?: unknown;
     logDate?: unknown;
     timeInMinutes?: unknown;
     shiftStartMinutes?: unknown;
@@ -75,12 +48,18 @@ attendanceController.post("/clock-in", async (c) => {
   if (
     typeof body.employeeId !== "string" ||
     !body.employeeId ||
+    typeof body.companyId !== "string" ||
+    !body.companyId ||
     !isLogDate(body.logDate) ||
     !isClockMinute(body.timeInMinutes) ||
-    (body.shiftStartMinutes !== undefined && !isClockMinute(body.shiftStartMinutes))
+    (body.shiftStartMinutes !== undefined &&
+      !isClockMinute(body.shiftStartMinutes))
   ) {
     return c.json(
-      { error: "Provide employeeId, logDate (YYYY-MM-DD), and timeInMinutes (0-1439)" },
+      {
+        error:
+          "Provide employeeId, companyId, logDate (YYYY-MM-DD), and timeInMinutes (0-1439)",
+      },
       400,
     );
   }
@@ -89,10 +68,18 @@ attendanceController.post("/clock-in", async (c) => {
   const [employee] = await db
     .select({ id: employees.id })
     .from(employees)
-    .where(and(eq(employees.id, body.employeeId), eq(employees.employmentStatus, "ACTIVE")))
+    .innerJoin(company, eq(employees.companyId, company.id))
+    .where(
+      and(
+        eq(employees.id, body.employeeId),
+        eq(employees.companyId, body.companyId),
+        eq(company.adminId, access.userId),
+        eq(employees.employmentStatus, "ACTIVE"),
+      ),
+    )
     .limit(1);
   if (!employee) {
-    return c.json({ error: "Active employee not found" }, 404);
+    return c.json({ error: "Active employee not found in your company" }, 404);
   }
 
   const [openLog] = await db
@@ -101,17 +88,18 @@ attendanceController.post("/clock-in", async (c) => {
     .where(
       and(
         eq(attendanceLogs.employeeId, body.employeeId),
-        eq(attendanceLogs.logDate, body.logDate),
         isNull(attendanceLogs.timeOutMinutes),
       ),
     )
     .limit(1);
   if (openLog) {
-    return c.json({ error: "Employee already has an open attendance record for this date" }, 409);
+    return c.json(
+      { error: "Employee already has an open attendance record", data: openLog },
+      409,
+    );
   }
 
   const shiftStartMinutes = body.shiftStartMinutes ?? 480;
-  const now = new Date();
   const newLog = {
     id: generateCustomId(),
     employeeId: body.employeeId,
@@ -121,16 +109,16 @@ attendanceController.post("/clock-in", async (c) => {
     totalHoursWorked: 0,
     overtimeHours: 0,
     lateMinutes: Math.max(0, body.timeInMinutes - shiftStartMinutes),
-    createdAt: now,
+    createdAt: new Date(),
   };
 
   await db.insert(attendanceLogs).values(newLog);
   return c.json({ success: true, data: newLog }, 201);
 });
 
-attendanceController.put("/clock-out/:id", async (c) => {
-  const tokenError = requireAttendanceToken(c);
-  if (tokenError) return tokenError;
+attendanceController.put("/admin/clock-out/:id", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
 
   let body: { timeOutMinutes?: unknown; breakMinutes?: unknown };
   try {
@@ -142,31 +130,48 @@ attendanceController.put("/clock-out/:id", async (c) => {
   if (
     !isClockMinute(body.timeOutMinutes) ||
     (body.breakMinutes !== undefined &&
-      (!Number.isInteger(body.breakMinutes) || (body.breakMinutes as number) < 0))
+      (!Number.isInteger(body.breakMinutes) ||
+        typeof body.breakMinutes !== "number" ||
+        body.breakMinutes < 0))
   ) {
-    return c.json({ error: "Provide timeOutMinutes (0-1439) and an optional non-negative breakMinutes" }, 400);
+    return c.json(
+      {
+        error:
+          "Provide timeOutMinutes (0-1439) and an optional non-negative breakMinutes",
+      },
+      400,
+    );
   }
 
   const db = drizzle(c.env.DB);
   const id = c.req.param("id");
   const [existing] = await db
-    .select()
+    .select({
+      id: attendanceLogs.id,
+      timeInMinutes: attendanceLogs.timeInMinutes,
+    })
     .from(attendanceLogs)
-    .where(and(eq(attendanceLogs.id, id), isNull(attendanceLogs.timeOutMinutes)))
+    .innerJoin(employees, eq(attendanceLogs.employeeId, employees.id))
+    .innerJoin(company, eq(employees.companyId, company.id))
+    .where(
+      and(
+        eq(attendanceLogs.id, id),
+        eq(company.adminId, access.userId),
+        isNull(attendanceLogs.timeOutMinutes),
+      ),
+    )
     .limit(1);
 
   if (!existing) {
     return c.json({ error: "Open attendance record not found" }, 404);
   }
-  if (body.timeOutMinutes < existing.timeInMinutes) {
-    return c.json({ error: "Clock-out time cannot be earlier than clock-in time" }, 400);
-  }
 
+  const elapsedMinutes =
+    body.timeOutMinutes >= existing.timeInMinutes
+      ? body.timeOutMinutes - existing.timeInMinutes
+      : body.timeOutMinutes + 1440 - existing.timeInMinutes;
   const breakMinutes = body.breakMinutes ?? 60;
-  const netMinutes = Math.max(
-    0,
-    body.timeOutMinutes - existing.timeInMinutes - breakMinutes,
-  );
+  const netMinutes = Math.max(0, elapsedMinutes - breakMinutes);
   const totalHoursWorked = Number((netMinutes / 60).toFixed(2));
   const overtimeHours = Number(Math.max(0, totalHoursWorked - 8).toFixed(2));
   const [closedLog] = await db

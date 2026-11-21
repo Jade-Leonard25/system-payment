@@ -17,6 +17,7 @@ server.use(
   cors({
     origin: (origin) => {
       const allowedOrigins = [
+        "https://system-payroll-api.automation-payroll.workers.dev",
         "http://localhost:1420",
         "http://localhost:5173",
         "http://127.0.0.1:5173",

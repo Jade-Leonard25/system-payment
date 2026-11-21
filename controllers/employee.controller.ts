@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { company, employees } from "../schema/schema";
 import { generateCustomId } from "../customID";
 import { requireAdmin } from "./admin-access";
@@ -8,13 +8,7 @@ import { requireAdmin } from "./admin-access";
 type Bindings = { DB: D1Database };
 const employeeController = new Hono<{ Bindings: Bindings }>();
 
-const PLAN_LIMITS: Record<string, number> = {
-  free: 20, // ₱0/month
-  small_100: 50, // ₱100/month
-  medium_500: 500, // ₱500/month
-};
-
-// Add a single employee (with tier limit check)
+// Add a single employee
 employeeController.post("/", async (c) => {
   const access = await requireAdmin(c);
   if ("response" in access) return access.response;
@@ -31,24 +25,6 @@ employeeController.post("/", async (c) => {
     .limit(1);
   if (!ownedCompany) {
     return c.json({ error: "Company not found" }, 404);
-  }
-
-  const plan = body.plan || "free";
-
-  // Check current employee count for this company
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(employees)
-    .where(eq(employees.companyId, body.companyId));
-
-  const limit = PLAN_LIMITS[plan] ?? 20;
-  if (count >= limit) {
-    return c.json(
-      {
-        error: `Plan limit reached (${limit} employees). Upgrade to add more.`,
-      },
-      403,
-    );
   }
 
   const now = new Date();
