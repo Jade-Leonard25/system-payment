@@ -43,6 +43,13 @@
       "when": 1795197746507,
       "tag": "0005_add_key_activation",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795200920257,
+      "tag": "0006_link_admin_product_key",
+      "breakpoints": true
     }
   ]
 }

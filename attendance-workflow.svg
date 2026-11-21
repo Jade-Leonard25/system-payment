@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1120" viewBox="0 0 1200 1120" role="img" aria-labelledby="title description">
+  <title id="title">Time-in and time-out workflow</title>
+  <desc id="description">An external timekeeping system authenticates clock-in and clock-out requests with a dedicated bearer token. The API validates the employee and attendance record, calculates worked and overtime hours, and lets an authenticated company admin view attendance.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#52627a"/>
+    </marker>
+    <style>
+      .bg { fill: #f5f7fb; }
+      .title { fill: #14213d; font: 700 30px Arial, sans-serif; }
+      .subtitle { fill: #52627a; font: 16px Arial, sans-serif; }
+      .lane { fill: #e9eef7; stroke: #ccd6e5; stroke-width: 1.5; }
+      .lane-title { fill: #263852; font: 700 17px Arial, sans-serif; }
+      .box { fill: #fff; stroke: #8798b2; stroke-width: 2; rx: 12; }
+      .blue { fill: #e8f2ff; stroke: #4a83c5; }
+      .green { fill: #e7f7ed; stroke: #4c9a69; }
+      .orange { fill: #fff3df; stroke: #c58a2b; }
+      .red { fill: #fff0ef; stroke: #c76b65; }
+      .box-title { fill: #182b47; font: 700 16px Arial, sans-serif; }
+      .text { fill: #34445c; font: 14px Arial, sans-serif; }
+      .small { fill: #52627a; font: 12px Arial, sans-serif; }
+      .arrow { fill: none; stroke: #52627a; stroke-width: 2.2; marker-end: url(#arrow); }
+      .label { fill: #52627a; font: 700 12px Arial, sans-serif; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="1120"/>
+  <text class="title" x="48" y="52">Attendance: time-in to time-out</text>
+  <text class="subtitle" x="48" y="82">The timekeeping integration writes attendance; an admin session is used only to view company records.</text>
+
+  <rect class="lane" x="32" y="112" width="1136" height="256" rx="18"/>
+  <text class="lane-title" x="56" y="143">1. Clock in</text>
+
+  <rect class="box blue" x="64" y="172" width="220" height="128"/>
+  <text class="box-title" x="84" y="200">Timekeeping system</text>
+  <text class="text" x="84" y="228">Sends employeeId,</text>
+  <text class="text" x="84" y="250">logDate, timeInMinutes</text>
+  <text class="text" x="84" y="272">+ Bearer API token</text>
+
+  <rect class="box" x="354" y="172" width="220" height="128"/>
+  <text class="box-title" x="374" y="200">Authenticate request</text>
+  <text class="text" x="374" y="228">Token must match the</text>
+  <text class="text" x="374" y="250">configured secret.</text>
+  <text class="small" x="374" y="276">Missing/invalid: reject</text>
+
+  <rect class="box" x="644" y="172" width="220" height="128"/>
+  <text class="box-title" x="664" y="200">Validate clock-in</text>
+  <text class="text" x="664" y="228">Employee must be active;</text>
+  <text class="text" x="664" y="250">no open log for that date.</text>
+  <text class="small" x="664" y="276">Invalid/duplicate: reject</text>
+
+  <rect class="box green" x="934" y="172" width="202" height="128"/>
+  <text class="box-title" x="954" y="200">Create open log</text>
+  <text class="text" x="954" y="228">Save clock-in time, date,</text>
+  <text class="text" x="954" y="250">late minutes, and log ID.</text>
+  <text class="small" x="954" y="276">Return log ID to caller</text>
+
+  <path class="arrow" d="M284 236H344"/>
+  <path class="arrow" d="M574 236H634"/>
+  <path class="arrow" d="M864 236H924"/>
+  <text class="label" x="590" y="220">valid</text>
+
+  <rect class="lane" x="32" y="390" width="1136" height="272" rx="18"/>
+  <text class="lane-title" x="56" y="421">2. Clock out</text>
+
+  <rect class="box blue" x="64" y="452" width="220" height="142"/>
+  <text class="box-title" x="84" y="480">Timekeeping system</text>
+  <text class="text" x="84" y="508">Sends log ID and</text>
+  <text class="text" x="84" y="530">timeOutMinutes</text>
+  <text class="text" x="84" y="552">+ Bearer API token</text>
+
+  <rect class="box" x="354" y="452" width="220" height="142"/>
+  <text class="box-title" x="374" y="480">Authenticate request</text>
+  <text class="text" x="374" y="508">Token must match the</text>
+  <text class="text" x="374" y="530">configured secret.</text>
+  <text class="small" x="374" y="560">Missing/invalid: reject</text>
+
+  <rect class="box" x="644" y="452" width="220" height="142"/>
+  <text class="box-title" x="664" y="480">Find open log</text>
+  <text class="text" x="664" y="508">Log must exist and have</text>
+  <text class="text" x="664" y="530">no clock-out yet.</text>
+  <text class="small" x="664" y="560">Invalid time/log: reject</text>
+
+  <rect class="box green" x="934" y="452" width="202" height="142"/>
+  <text class="box-title" x="954" y="480">Close attendance</text>
+  <text class="text" x="954" y="508">Save clock-out and</text>
+  <text class="text" x="954" y="530">calculate worked hours</text>
+  <text class="text" x="954" y="552">and overtime.</text>
+
+  <path class="arrow" d="M284 523H344"/>
+  <path class="arrow" d="M574 523H634"/>
+  <path class="arrow" d="M864 523H924"/>
+  <text class="label" x="590" y="507">valid</text>
+
+  <rect class="lane" x="32" y="684" width="1136" height="236" rx="18"/>
+  <text class="lane-title" x="56" y="715">3. Admin views attendance</text>
+
+  <rect class="box orange" x="174" y="750" width="260" height="124"/>
+  <text class="box-title" x="196" y="780">Admin dashboard</text>
+  <text class="text" x="196" y="808">Uses the admin's Better Auth</text>
+  <text class="text" x="196" y="830">session to request attendance.</text>
+
+  <rect class="box" x="470" y="750" width="260" height="124"/>
+  <text class="box-title" x="492" y="780">Check ownership</text>
+  <text class="text" x="492" y="808">Admin can read only records</text>
+  <text class="text" x="492" y="830">for their own company.</text>
+
+  <rect class="box green" x="766" y="750" width="260" height="124"/>
+  <text class="box-title" x="788" y="780">Show attendance</text>
+  <text class="text" x="788" y="808">Clock-in/out, date, and</text>
+  <text class="text" x="788" y="830">calculated work totals.</text>
+
+  <path class="arrow" d="M434 812H460"/>
+  <path class="arrow" d="M730 812H756"/>
+
+  <rect class="box red" x="112" y="956" width="976" height="104"/>
+  <text class="box-title" x="136" y="986">Important security boundary</text>
+  <text class="text" x="136" y="1014">The integration token is a machine credential for attendance writes only. Do not send an admin password or admin session to the timekeeping system.</text>
+  <text class="small" x="136" y="1038">A shared integration token authenticates the system, not the individual employee using it.</text>
+</svg>

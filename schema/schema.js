@@ -9,6 +9,9 @@ export const userAdmin = sqliteTable("user_admin", {
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull(),
   image: text("image"),
   role: text("role").notNull().default("employee"),
+  keyProductId: text("key_product_id").unique().references(() => keyProduct.id, {
+    onDelete: "set null",
+  }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
@@ -151,11 +154,15 @@ export const keyProduct = sqliteTable("key_product", {
 });
 
 // --- Relations ---
-export const userRelations = relations(userAdmin, ({ many }) => ({
+export const userRelations = relations(userAdmin, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   companies: many(company),
   employees: many(employees),
+  keyProduct: one(keyProduct, {
+    fields: [userAdmin.keyProductId],
+    references: [keyProduct.id],
+  }),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -197,4 +204,8 @@ export const attendanceLogRelations = relations(attendanceLogs, ({ one }) => ({
     fields: [attendanceLogs.employeeId],
     references: [employees.id],
   }),
+}));
+
+export const keyProductRelations = relations(keyProduct, ({ one }) => ({
+  userAdmin: one(userAdmin),
 }));

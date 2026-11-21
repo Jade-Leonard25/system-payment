@@ -1,7 +1,8 @@
 import { unlink, writeFile } from "node:fs/promises";
 import { hashProductKey, generateKeySegment, generateProductKey } from "./key-products";
 
-const KEY_COUNT = 1000;
+const KEY_COUNT_PER_RUN = 1000;
+const MAX_KEY_COUNT = 36 ** 3;
 const BATCH_SIZE = 100;
 const HASH_CONCURRENCY = 8;
 const target = process.argv.includes("--remote") ? "--remote" : "--local";
@@ -22,6 +23,54 @@ async function createSeedRow() {
   const id = crypto.randomUUID();
   const createdAt = Math.floor(Date.now() / 1000);
   return `('${id}', '${keySelector}', '${key}', '${keyHash}', 'active', ${createdAt})`;
+}
+
+async function getExistingSelectors(): Promise<Set<string>> {
+  const query = Bun.spawn(
+    [
+      "bunx",
+      "wrangler",
+      "d1",
+      "execute",
+      "system-payroll",
+      target,
+      "--json",
+      "--command",
+      "SELECT key_selector FROM key_product;",
+    ],
+    { stdout: "pipe", stderr: "inherit" },
+  );
+  const outputPromise = new Response(query.stdout).text();
+  const exitCode = await query.exited;
+  const output = await outputPromise;
+  if (exitCode !== 0) {
+    throw new Error(`Unable to read existing product keys (Wrangler exit code ${exitCode})`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error("Wrangler returned invalid JSON while reading existing product keys");
+  }
+
+  const result = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (!result || typeof result !== "object") {
+    throw new Error("Wrangler response did not contain product key selectors");
+  }
+
+  const response = result as {
+    results?: Array<{ key_selector?: unknown }>;
+  };
+  const rows = response.results;
+  if (!rows) {
+    throw new Error("Wrangler response did not contain product key selectors");
+  }
+  return new Set(
+    rows.flatMap((row) =>
+      typeof row.key_selector === "string" ? [row.key_selector] : [],
+    ),
+  );
 }
 
 async function importExistingKeys(filePath: string) {
@@ -84,11 +133,29 @@ async function main() {
   }
 
   const tempFile = `/tmp/system-payment-key-seed-${crypto.randomUUID()}.sql`;
-  const keysFile = `./seeded-keys-${crypto.randomUUID()}.txt`;
+  let tempFileCreated = false;
   try {
+    const migration = Bun.spawn(
+      ["bunx", "wrangler", "d1", "migrations", "apply", "system-payroll", target],
+      { stdout: "inherit", stderr: "inherit" },
+    );
+    const migrationExitCode = await migration.exited;
+    if (migrationExitCode !== 0) {
+      throw new Error(`Wrangler D1 migration failed with exit code ${migrationExitCode}`);
+    }
+
+    const existingSelectors = await getExistingSelectors();
+    if (existingSelectors.size + KEY_COUNT_PER_RUN > MAX_KEY_COUNT) {
+      throw new Error(
+        `Cannot add ${KEY_COUNT_PER_RUN} keys: ${existingSelectors.size} selectors already exist and the key format supports at most ${MAX_KEY_COUNT} unique selectors.`,
+      );
+    }
+
+    for (const selector of existingSelectors) selectors.add(selector);
+
     const rows: string[] = [];
-    for (let start = 0; start < KEY_COUNT; start += BATCH_SIZE) {
-      const batchSize = Math.min(BATCH_SIZE, KEY_COUNT - start);
+    for (let start = 0; start < KEY_COUNT_PER_RUN; start += BATCH_SIZE) {
+      const batchSize = Math.min(BATCH_SIZE, KEY_COUNT_PER_RUN - start);
       const batch: string[] = [];
       for (let offset = 0; offset < batchSize; offset += HASH_CONCURRENCY) {
         const rowCount = Math.min(HASH_CONCURRENCY, batchSize - offset);
@@ -100,15 +167,7 @@ async function main() {
     }
 
     await Bun.write(tempFile, rows.join("\n"));
-    const migration = Bun.spawn(
-      ["bunx", "wrangler", "d1", "migrations", "apply", "system-payroll", target],
-      { stdout: "inherit", stderr: "inherit" },
-    );
-    const migrationExitCode = await migration.exited;
-    if (migrationExitCode !== 0) {
-      throw new Error(`Wrangler D1 migration failed with exit code ${migrationExitCode}`);
-    }
-
+    tempFileCreated = true;
     const seedProcess = Bun.spawn(
       ["bunx", "wrangler", "d1", "execute", "system-payroll", target, "--file", tempFile],
       { stdout: "inherit", stderr: "inherit" },
@@ -118,16 +177,21 @@ async function main() {
       throw new Error(`Wrangler D1 seed failed with exit code ${exitCode}`);
     }
 
+    const keysFile = `./seeded-keys-${crypto.randomUUID()}.txt`;
     await writeFile(keysFile, `${seededKeys.join("\n")}\n`, {
       encoding: "utf8",
       flag: "wx",
       mode: 0o600,
     });
-    console.log(`Seeded ${seededKeys.length} keys. Store the generated keys securely: ${keysFile}`);
+    console.log(
+      `Added ${seededKeys.length} new keys. Database now contains ${existingSelectors.size + seededKeys.length} keys. Store newly generated keys securely: ${keysFile}`,
+    );
   } finally {
-    await unlink(tempFile).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
+    if (tempFileCreated) {
+      await unlink(tempFile).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }
   }
 }
 

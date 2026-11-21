@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, sql } from "drizzle-orm";
-import { employees } from "../schema/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { company, employees } from "../schema/schema";
 import { generateCustomId } from "../customID";
+import { requireAdmin } from "./admin-access";
 
 type Bindings = { DB: D1Database };
 const employeeController = new Hono<{ Bindings: Bindings }>();
@@ -15,8 +16,23 @@ const PLAN_LIMITS: Record<string, number> = {
 
 // Add a single employee (with tier limit check)
 employeeController.post("/", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
+
   const db = drizzle(c.env.DB);
   const body = await c.req.json();
+  if (typeof body.companyId !== "string" || !body.companyId) {
+    return c.json({ error: "Company ID is required" }, 400);
+  }
+  const [ownedCompany] = await db
+    .select({ id: company.id })
+    .from(company)
+    .where(and(eq(company.id, body.companyId), eq(company.adminId, access.userId)))
+    .limit(1);
+  if (!ownedCompany) {
+    return c.json({ error: "Company not found" }, 404);
+  }
+
   const plan = body.plan || "free";
 
   // Check current employee count for this company
@@ -38,7 +54,7 @@ employeeController.post("/", async (c) => {
   const now = new Date();
   const newEmployee = {
     id: generateCustomId(),
-    adminId: body.adminId ?? null,
+    adminId: access.userId,
     companyId: body.companyId,
     firstname: body.firstname,
     middlename: body.middlename ?? null,
@@ -77,8 +93,19 @@ employeeController.post("/", async (c) => {
 
 // Get all employees for a company
 employeeController.get("/company/:companyId", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
+
   const db = drizzle(c.env.DB);
   const companyId = c.req.param("companyId");
+  const [ownedCompany] = await db
+    .select({ id: company.id })
+    .from(company)
+    .where(and(eq(company.id, companyId), eq(company.adminId, access.userId)))
+    .limit(1);
+  if (!ownedCompany) {
+    return c.json({ error: "Company not found" }, 404);
+  }
 
   const results = await db
     .select()
@@ -90,6 +117,9 @@ employeeController.get("/company/:companyId", async (c) => {
 
 // Batch update employee salaries/rates (1 fast D1 round-trip)
 employeeController.put("/batch-rates", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
+
   const db = drizzle(c.env.DB);
   const { updates } = await c.req.json<{
     updates: {
@@ -102,6 +132,19 @@ employeeController.put("/batch-rates", async (c) => {
 
   if (!updates?.length) {
     return c.json({ error: "No updates provided" }, 400);
+  }
+
+  const employeeIds = [...new Set(updates.map((item) => item.id))];
+  if (employeeIds.some((id) => typeof id !== "string" || !id)) {
+    return c.json({ error: "Every update must include a valid employee ID" }, 400);
+  }
+  const ownedEmployees = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .innerJoin(company, eq(employees.companyId, company.id))
+    .where(and(eq(company.adminId, access.userId), inArray(employees.id, employeeIds)));
+  if (ownedEmployees.length !== employeeIds.length) {
+    return c.json({ error: "One or more employees were not found" }, 404);
   }
 
   const now = new Date();
@@ -125,10 +168,30 @@ employeeController.put("/batch-rates", async (c) => {
 
 // Delete an employee
 employeeController.delete("/:id", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
+
   const db = drizzle(c.env.DB);
   const id = c.req.param("id");
 
-  await db.delete(employees).where(eq(employees.id, id));
+  const [deleted] = await db
+    .delete(employees)
+    .where(
+      and(
+        eq(employees.id, id),
+        inArray(
+          employees.companyId,
+          db
+            .select({ id: company.id })
+            .from(company)
+            .where(eq(company.adminId, access.userId)),
+        ),
+      ),
+    )
+    .returning({ id: employees.id });
+  if (!deleted) {
+    return c.json({ error: "Employee not found" }, 404);
+  }
   return c.json({ success: true });
 });
 
