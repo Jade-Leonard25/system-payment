@@ -108,6 +108,49 @@ deduction flag.
 **Success:** `201 { "success": true, "data": <employee> }`. Returns `400` if
 `companyId` is missing and `404` if the company is not found or not owned.
 
+### `POST /api/employees/batch`
+
+Create 1–1,000 employees for one owned company in a single request and one
+atomic database insert. The backend generates employee IDs and returns those
+IDs for internal row tracking; they should remain out of the accountant's
+visible worksheet. If validation or insertion fails, the batch is not
+partially inserted. The request body is limited to 5 MB. A multi-batch import
+is atomic per request, not across the entire file: if a later request fails,
+earlier successful batches remain saved and the UI reports the confirmed
+count. The employee page's direct CSV/Excel import converts the file to JSON
+and sends multiple batches to support rosters up to 100,000 rows without
+loading them into the editor.
+
+**JSON body**
+
+```json
+{
+  "companyId": "company-id",
+  "employees": [
+    {
+      "firstname": "Ana",
+      "lastname": "Santos",
+      "dateHired": "2026-11-21",
+      "socialSecurityNumber": "sss-number",
+      "pagIbigID": "pagibig-number",
+      "philhealth": "philhealth-number",
+      "taxIdNumber": "tin-number",
+      "baseSalaryCents": 5000000,
+      "dailyRateCents": 200000,
+      "hourlyRateCents": 25000
+    }
+  ]
+}
+```
+
+Each employee accepts the same employee fields as `POST /api/employees`;
+optional profile fields and deduction flags receive the same defaults.
+
+**Success:** `201 { "success": true, "data": [{"id":"..."}, ...] }`. Returns
+`400` for invalid JSON or input, `401`/`403` for missing or non-admin
+credentials, `404` if the company is not owned by the caller, and `413` if
+the request exceeds 5 MB.
+
 ### `GET /api/employees/company/:companyId`
 
 List employees in an owned company.

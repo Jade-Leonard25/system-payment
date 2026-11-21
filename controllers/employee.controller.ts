@@ -4,9 +4,49 @@ import { and, eq, inArray } from "drizzle-orm";
 import { company, employees } from "../schema/schema";
 import { generateCustomId } from "../customID";
 import { requireAdmin } from "./admin-access";
+import { z } from "zod";
 
 type Bindings = { DB: D1Database };
 const employeeController = new Hono<{ Bindings: Bindings }>();
+const MAX_BATCH_EMPLOYEES = 1000;
+const MAX_BATCH_REQUEST_BYTES = 5 * 1024 * 1024;
+const batchEmployeeSchema = z
+  .object({
+    firstname: z.string().trim().min(1).max(128),
+    middlename: z.string().nullable().optional(),
+    lastname: z.string().trim().min(1).max(128),
+    extname: z.string().nullable().optional(),
+    birthdate: z.string().nullable().optional(),
+    gender: z.string().nullable().optional(),
+    civilStatus: z.string().default("SINGLE"),
+    email: z.string().nullable().optional(),
+    phone: z.string().nullable().optional(),
+    address: z.string().nullable().optional(),
+    employmentType: z.string().default("REGULAR"),
+    employmentStatus: z.string().default("ACTIVE"),
+    dateHired: z.string().trim().min(1),
+    dateResigned: z.string().nullable().optional(),
+    department: z.string().nullable().optional(),
+    position: z.string().nullable().optional(),
+    socialSecurityNumber: z.string().trim().min(1),
+    pagIbigID: z.string().trim().min(1),
+    philhealth: z.string().trim().min(1),
+    taxIdNumber: z.string().trim().min(1),
+    baseSalaryCents: z.number().int().safe().nonnegative(),
+    dailyRateCents: z.number().int().safe().nonnegative(),
+    hourlyRateCents: z.number().int().safe().nonnegative(),
+    deductSSS: z.boolean().default(true),
+    deductPhilHealth: z.boolean().default(true),
+    deductPagIbig: z.boolean().default(true),
+    deductTax: z.boolean().default(true),
+  })
+  .strict();
+const batchCreateRequestSchema = z
+  .object({
+    companyId: z.string().trim().min(1).max(128),
+    employees: z.array(batchEmployeeSchema).min(1).max(MAX_BATCH_EMPLOYEES),
+  })
+  .strict();
 
 // Add a single employee
 employeeController.post("/", async (c) => {
@@ -65,6 +105,144 @@ employeeController.post("/", async (c) => {
 
   await db.insert(employees).values(newEmployee);
   return c.json({ success: true, data: newEmployee }, 201);
+});
+
+employeeController.post("/batch", async (c) => {
+  const access = await requireAdmin(c);
+  if ("response" in access) return access.response;
+
+  const contentLength = Number(c.req.header("content-length") ?? 0);
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_BATCH_REQUEST_BYTES
+  ) {
+    return c.json({ error: "Employee batches must be 5 MB or smaller" }, 413);
+  }
+
+  let requestJson: unknown;
+  try {
+    const requestText = await c.req.text();
+    if (new TextEncoder().encode(requestText).byteLength > MAX_BATCH_REQUEST_BYTES) {
+      return c.json({ error: "Employee batches must be 5 MB or smaller" }, 413);
+    }
+    requestJson = JSON.parse(requestText);
+  } catch {
+    return c.json({ error: "Request body must be valid JSON" }, 400);
+  }
+
+  const parsedRequest = batchCreateRequestSchema.safeParse(requestJson);
+  if (!parsedRequest.success) {
+    return c.json(
+      {
+        error: `Provide a companyId and between 1 and ${MAX_BATCH_EMPLOYEES} valid employees.`,
+        details: parsedRequest.error.flatten(),
+      },
+      400,
+    );
+  }
+
+  const { companyId, employees: employeeInputs } = parsedRequest.data;
+  const db = drizzle(c.env.DB);
+  const [ownedCompany] = await db
+    .select({ id: company.id })
+    .from(company)
+    .where(and(eq(company.id, companyId), eq(company.adminId, access.userId)))
+    .limit(1);
+  if (!ownedCompany) {
+    return c.json({ error: "Company not found" }, 404);
+  }
+
+  const now = new Date();
+  const createdAt = Math.floor(now.getTime() / 1000);
+  const newEmployees = employeeInputs.map((input) => ({
+    id: generateCustomId(),
+    adminId: access.userId,
+    companyId,
+    firstname: input.firstname,
+    middlename: input.middlename ?? null,
+    lastname: input.lastname,
+    extname: input.extname ?? null,
+    birthdate: input.birthdate ?? null,
+    gender: input.gender ?? null,
+    civilStatus: input.civilStatus,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    address: input.address ?? null,
+    employmentType: input.employmentType,
+    employmentStatus: input.employmentStatus,
+    dateHired: input.dateHired,
+    dateResigned: input.dateResigned ?? null,
+    department: input.department ?? null,
+    position: input.position ?? null,
+    socialSecurityNumber: input.socialSecurityNumber,
+    pagIbigID: input.pagIbigID,
+    philhealth: input.philhealth,
+    taxIdNumber: input.taxIdNumber,
+    baseSalaryCents: input.baseSalaryCents,
+    dailyRateCents: input.dailyRateCents,
+    hourlyRateCents: input.hourlyRateCents,
+    deductSSS: input.deductSSS,
+    deductPhilHealth: input.deductPhilHealth,
+    deductPagIbig: input.deductPagIbig,
+    deductTax: input.deductTax,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const insertPayload = newEmployees.map((employee) => ({
+    ...employee,
+    createdAt,
+    updatedAt: createdAt,
+  }));
+
+  await c.env.DB.prepare(
+    `INSERT INTO employees (
+      id, admin_id, company_id, firstname, middlename, lastname, extname,
+      birthdate, gender, civil_status, email, phone, address, employment_type,
+      employment_status, date_hired, date_resigned, department, position, sss,
+      pag_ibig, philhealth, tin, base_salary_cents, daily_rate_cents,
+      hourly_rate_cents, deduct_sss, deduct_philhealth, deduct_pag_ibig,
+      deduct_tax, created_at, updated_at
+    )
+    SELECT
+      json_extract(value, '$.id'),
+      json_extract(value, '$.adminId'),
+      json_extract(value, '$.companyId'),
+      json_extract(value, '$.firstname'),
+      json_extract(value, '$.middlename'),
+      json_extract(value, '$.lastname'),
+      json_extract(value, '$.extname'),
+      json_extract(value, '$.birthdate'),
+      json_extract(value, '$.gender'),
+      json_extract(value, '$.civilStatus'),
+      json_extract(value, '$.email'),
+      json_extract(value, '$.phone'),
+      json_extract(value, '$.address'),
+      json_extract(value, '$.employmentType'),
+      json_extract(value, '$.employmentStatus'),
+      json_extract(value, '$.dateHired'),
+      json_extract(value, '$.dateResigned'),
+      json_extract(value, '$.department'),
+      json_extract(value, '$.position'),
+      json_extract(value, '$.socialSecurityNumber'),
+      json_extract(value, '$.pagIbigID'),
+      json_extract(value, '$.philhealth'),
+      json_extract(value, '$.taxIdNumber'),
+      json_extract(value, '$.baseSalaryCents'),
+      json_extract(value, '$.dailyRateCents'),
+      json_extract(value, '$.hourlyRateCents'),
+      json_extract(value, '$.deductSSS'),
+      json_extract(value, '$.deductPhilHealth'),
+      json_extract(value, '$.deductPagIbig'),
+      json_extract(value, '$.deductTax'),
+      json_extract(value, '$.createdAt'),
+      json_extract(value, '$.updatedAt')
+    FROM json_each(?)`,
+  ).bind(JSON.stringify(insertPayload)).run();
+
+  return c.json(
+    { success: true, data: newEmployees.map(({ id }) => ({ id })) },
+    201,
+  );
 });
 
 // Get all employees for a company
