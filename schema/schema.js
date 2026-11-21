@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
 // --- Better Auth Tables ---
@@ -153,12 +160,155 @@ export const keyProduct = sqliteTable("key_product", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const attendanceBatches = sqliteTable(
+  "attendance_batches",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    batchId: text("batch_id").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    status: text("status").notNull(),
+    totalRows: integer("total_rows").notNull(),
+    computedCount: integer("computed_count").notNull(),
+    flaggedCount: integer("flagged_count").notNull(),
+    rejectedCount: integer("rejected_count").notNull(),
+    actorId: text("actor_id").references(() => userAdmin.id, {
+      onDelete: "set null",
+    }),
+    rulesVersion: text("rules_version").notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("attendance_batches_company_batch_id_unique").on(
+      table.companyId,
+      table.batchId,
+    ),
+    index("attendance_batches_company_created_at_idx").on(
+      table.companyId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const rawAttendanceLogs = sqliteTable(
+  "raw_attendance_logs",
+  {
+    id: text("id").primaryKey(),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => attendanceBatches.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    sourceRow: integer("source_row").notNull(),
+    rawEmployeeIdentifier: text("raw_employee_identifier").notNull(),
+    employeeId: text("employee_id").references(() => employees.id, {
+      onDelete: "set null",
+    }),
+    punchType: text("punch_type"),
+    punchedAt: text("punched_at"),
+    status: text("status").notNull(),
+    issuesJson: text("issues_json").notNull(),
+    rawPayloadJson: text("raw_payload_json").notNull(),
+  },
+  (table) => [
+    uniqueIndex("raw_attendance_logs_batch_row_unique").on(
+      table.batchId,
+      table.sourceRow,
+    ),
+    index("raw_attendance_logs_company_punched_at_idx").on(
+      table.companyId,
+      table.punchedAt,
+    ),
+    index("raw_attendance_logs_employee_punched_at_idx").on(
+      table.employeeId,
+      table.punchedAt,
+    ),
+  ],
+);
+
+export const computedShiftSummaries = sqliteTable(
+  "computed_shift_summaries",
+  {
+    id: text("id").primaryKey(),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => attendanceBatches.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id").references(() => employees.id, {
+      onDelete: "set null",
+    }),
+    employeeIdentifier: text("employee_identifier").notNull(),
+    sourceKey: text("source_key").notNull(),
+    sourceRowsJson: text("source_rows_json").notNull(),
+    timeInAt: text("time_in_at"),
+    timeOutAt: text("time_out_at"),
+    elapsedMinutes: integer("elapsed_minutes"),
+    rawNightWindowMinutes: integer("raw_night_window_minutes"),
+    regularMinutes: integer("regular_minutes"),
+    lateMinutes: integer("late_minutes"),
+    undertimeMinutes: integer("undertime_minutes"),
+    overtimeMinutes: integer("overtime_minutes"),
+    nightDifferentialMinutes: integer("night_differential_minutes"),
+    grossPayCents: integer("gross_pay_cents"),
+    status: text("status").notNull(),
+    issuesJson: text("issues_json").notNull(),
+  },
+  (table) => [
+    uniqueIndex("computed_shift_summaries_batch_source_unique").on(
+      table.batchId,
+      table.sourceKey,
+    ),
+    index("computed_shift_summaries_company_employee_idx").on(
+      table.companyId,
+      table.employeeId,
+    ),
+  ],
+);
+
+export const auditLogs = sqliteTable(
+  "audit_logs",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    actorId: text("actor_id").references(() => userAdmin.id, {
+      onDelete: "set null",
+    }),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => attendanceBatches.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    rulesVersion: text("rules_version").notNull(),
+    occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+    metadataJson: text("metadata_json").notNull(),
+  },
+  (table) => [
+    uniqueIndex("audit_logs_batch_action_unique").on(
+      table.batchId,
+      table.action,
+    ),
+    index("audit_logs_company_occurred_at_idx").on(
+      table.companyId,
+      table.occurredAt,
+    ),
+  ],
+);
+
 // --- Relations ---
 export const userRelations = relations(userAdmin, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   companies: many(company),
   employees: many(employees),
+  attendanceBatches: many(attendanceBatches),
+  auditLogs: many(auditLogs),
   keyProduct: one(keyProduct, {
     fields: [userAdmin.keyProductId],
     references: [keyProduct.id],
@@ -185,6 +335,10 @@ export const companyRelations = relations(company, ({ one, many }) => ({
     references: [userAdmin.id],
   }),
   employees: many(employees),
+  attendanceBatches: many(attendanceBatches),
+  rawAttendanceLogs: many(rawAttendanceLogs),
+  computedShiftSummaries: many(computedShiftSummaries),
+  auditLogs: many(auditLogs),
 }));
 
 export const employeeRelations = relations(employees, ({ one, many }) => ({
@@ -197,6 +351,8 @@ export const employeeRelations = relations(employees, ({ one, many }) => ({
     references: [company.id],
   }),
   attendanceLogs: many(attendanceLogs),
+  rawAttendanceLogs: many(rawAttendanceLogs),
+  computedShiftSummaries: many(computedShiftSummaries),
 }));
 
 export const attendanceLogRelations = relations(attendanceLogs, ({ one }) => ({
@@ -208,4 +364,72 @@ export const attendanceLogRelations = relations(attendanceLogs, ({ one }) => ({
 
 export const keyProductRelations = relations(keyProduct, ({ one }) => ({
   userAdmin: one(userAdmin),
+}));
+
+export const attendanceBatchRelations = relations(
+  attendanceBatches,
+  ({ one, many }) => ({
+    company: one(company, {
+      fields: [attendanceBatches.companyId],
+      references: [company.id],
+    }),
+    actor: one(userAdmin, {
+      fields: [attendanceBatches.actorId],
+      references: [userAdmin.id],
+    }),
+    rawLogs: many(rawAttendanceLogs),
+    summaries: many(computedShiftSummaries),
+    auditLogs: many(auditLogs),
+  }),
+);
+
+export const rawAttendanceLogRelations = relations(
+  rawAttendanceLogs,
+  ({ one }) => ({
+    batch: one(attendanceBatches, {
+      fields: [rawAttendanceLogs.batchId],
+      references: [attendanceBatches.id],
+    }),
+    company: one(company, {
+      fields: [rawAttendanceLogs.companyId],
+      references: [company.id],
+    }),
+    employee: one(employees, {
+      fields: [rawAttendanceLogs.employeeId],
+      references: [employees.id],
+    }),
+  }),
+);
+
+export const computedShiftSummaryRelations = relations(
+  computedShiftSummaries,
+  ({ one }) => ({
+    batch: one(attendanceBatches, {
+      fields: [computedShiftSummaries.batchId],
+      references: [attendanceBatches.id],
+    }),
+    company: one(company, {
+      fields: [computedShiftSummaries.companyId],
+      references: [company.id],
+    }),
+    employee: one(employees, {
+      fields: [computedShiftSummaries.employeeId],
+      references: [employees.id],
+    }),
+  }),
+);
+
+export const auditLogRelations = relations(auditLogs, ({ one }) => ({
+  company: one(company, {
+    fields: [auditLogs.companyId],
+    references: [company.id],
+  }),
+  actor: one(userAdmin, {
+    fields: [auditLogs.actorId],
+    references: [userAdmin.id],
+  }),
+  batch: one(attendanceBatches, {
+    fields: [auditLogs.batchId],
+    references: [attendanceBatches.id],
+  }),
 }));

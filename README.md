@@ -32,3 +32,15 @@ Run `bun fmt` to format the code.
 
 This project was created using `bun init` in bun v1.4.4. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
 # system-payment
+
+## Attendance batch scanning
+
+The local JSON scan-and-compute endpoint, request format, review behavior,
+database migration, and payroll-rule limitations are documented in
+[ATTENDANCE-SCAN-PIPELINE.md](./ATTENDANCE-SCAN-PIPELINE.md).
+
+## API endpoints
+
+The complete route reference, including authentication requirements, request
+fields, behavior, and response summaries for each mounted endpoint, is in
+[API-ENDPOINTS.md](./API-ENDPOINTS.md).
