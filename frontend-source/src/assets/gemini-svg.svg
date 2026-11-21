@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 210" width="100%" role="img" aria-label="Scan and compute pipeline for uploaded time-in and time-out data">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="currentColor" />
+    </marker>
+  </defs>
+
+  <rect x="16" y="45" width="155" height="115" rx="10" fill="currentColor" fill-opacity="0.06" stroke="currentColor" stroke-width="1.5" />
+  <text x="93" y="76" text-anchor="middle" font-size="14" font-weight="bold" fill="currentColor">1. Ingest Batch</text>
+  <text x="93" y="102" text-anchor="middle" font-size="13" fill="currentColor">CSV / XLSX / API</text>
+  <text x="93" y="122" text-anchor="middle" font-size="13" fill="currentColor">Tag batch_id &amp;</text>
+  <text x="93" y="140" text-anchor="middle" font-size="13" fill="currentColor">company_id</text>
+
+  <line x1="171" y1="102" x2="207" y2="102" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)" fill="none" />
+
+  <rect x="212" y="45" width="165" height="115" rx="10" fill="var(--accent, currentColor)" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5" />
+  <text x="294" y="76" text-anchor="middle" font-size="14" font-weight="bold" fill="currentColor">2. Scan &amp; Match</text>
+  <text x="294" y="102" text-anchor="middle" font-size="13" fill="currentColor">Group by employee</text>
+  <text x="294" y="122" text-anchor="middle" font-size="13" fill="currentColor">Pair time-in/out</text>
+  <text x="294" y="140" text-anchor="middle" font-size="13" fill="currentColor">Flag missing/dup</text>
+
+  <line x1="377" y1="102" x2="413" y2="102" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)" fill="none" />
+
+  <rect x="418" y="45" width="165" height="115" rx="10" fill="var(--success, currentColor)" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5" />
+  <text x="500" y="76" text-anchor="middle" font-size="14" font-weight="bold" fill="currentColor">3. Compute Rules</text>
+  <text x="500" y="102" text-anchor="middle" font-size="13" fill="currentColor">Shift &amp; break rules</text>
+  <text x="500" y="122" text-anchor="middle" font-size="13" fill="currentColor">Late, UT, OT, ND</text>
+  <text x="500" y="140" text-anchor="middle" font-size="13" fill="currentColor">Integer cent math</text>
+
+  <line x1="583" y1="102" x2="619" y2="102" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)" fill="none" />
+
+  <rect x="624" y="45" width="120" height="115" rx="10" fill="currentColor" fill-opacity="0.06" stroke="currentColor" stroke-width="1.5" />
+  <text x="684" y="76" text-anchor="middle" font-size="14" font-weight="bold" fill="currentColor">4. Persist</text>
+  <text x="684" y="102" text-anchor="middle" font-size="13" fill="currentColor">Save summaries</text>
+  <text x="684" y="122" text-anchor="middle" font-size="13" fill="currentColor">&amp; audit log</text>
+  <text x="684" y="140" text-anchor="middle" font-size="13" fill="currentColor">Return to UI</text>
+</svg>

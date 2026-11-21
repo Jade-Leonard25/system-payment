@@ -4,6 +4,7 @@
   "main": "main.ts",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
+  // Only public/ is uploaded as static assets; frontend-source/ is not deployed.
   "assets": {
     "directory": "./public",
     "run_worker_first": ["/api/*", "/admin/*"]
