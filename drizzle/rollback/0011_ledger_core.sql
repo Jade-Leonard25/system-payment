@@ -1,0 +1,14 @@
+DROP TRIGGER IF EXISTS `journal_entry_posted_balance_check`;
+DROP TRIGGER IF EXISTS `accounts_postings_no_delete`;
+DROP TRIGGER IF EXISTS `journal_lines_posted_no_delete`;
+DROP TRIGGER IF EXISTS `journal_lines_posted_no_update`;
+DROP TRIGGER IF EXISTS `journal_entries_posted_no_delete`;
+DROP TRIGGER IF EXISTS `journal_entries_posted_no_update`;
+DELETE FROM `role_permissions` WHERE `permission_key` LIKE 'ledger.%';
+DELETE FROM `permissions` WHERE `permission_key` LIKE 'ledger.%';
+DROP TABLE IF EXISTS `journal_attachments`;
+DROP TABLE IF EXISTS `journal_lines`;
+DROP TABLE IF EXISTS `journal_entries`;
+DROP TABLE IF EXISTS `voucher_series`;
+DROP TABLE IF EXISTS `accounts`;
+DROP TABLE IF EXISTS `accounting_periods`;

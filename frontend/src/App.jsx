@@ -11,8 +11,8 @@
   import { z } from "zod";
   import axios from "axios";
   import { Link, useNavigate } from "react-router";
-  const url =
-    "https://system-payroll-api.automation-payroll.workers.dev/api/key-products/activate";
+  import { authBaseURL } from "./auth-client";
+  const url = `${authBaseURL}/api/key-products/activate`;
 
   const keySchema = z
     .string()

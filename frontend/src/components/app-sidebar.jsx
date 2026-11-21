@@ -45,7 +45,7 @@ import {
 
 const primaryModules = [
   { label: "Overview", href: "/dashboard", Icon: LayoutDashboard },
-  { label: "Transactions", detail: "Journal, Chart of Accounts", Icon: BookOpen },
+  { label: "Transactions", href: "/transactions", detail: "Journal, Chart of Accounts", Icon: BookOpen },
   { label: "Sales & Receivables", Icon: ReceiptText },
   { label: "Purchases & Payables", Icon: Wallet },
   { label: "Banking", detail: "Reconciliation", Icon: Banknote },

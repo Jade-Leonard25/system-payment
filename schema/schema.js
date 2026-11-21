@@ -419,6 +419,106 @@ export const companyAuditWriteGuards = sqliteTable(
   (table) => [primaryKey({ columns: [table.companyId, table.guardId] })],
 );
 
+export const accountingPeriods = sqliteTable("accounting_periods", {
+  companyId: text("company_id").notNull().references(() => company.id, { onDelete: "restrict" }),
+  id: text("id").notNull(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  status: text("status").notNull(),
+  closedBy: text("closed_by"),
+  closedAt: text("closed_at"),
+  closeReason: text("close_reason"),
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.id] }),
+  uniqueIndex("accounting_periods_company_range_unique").on(table.companyId, table.periodStart, table.periodEnd),
+  index("accounting_periods_company_status_idx").on(table.companyId, table.status, table.periodStart),
+]);
+
+export const accounts = sqliteTable("accounts", {
+  companyId: text("company_id").notNull().references(() => company.id, { onDelete: "restrict" }),
+  id: text("id").notNull(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  normalBalance: text("normal_balance").notNull(),
+  isHeader: integer("is_header", { mode: "boolean" }).notNull().default(false),
+  isPostable: integer("is_postable", { mode: "boolean" }).notNull().default(true),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  parentId: text("parent_id"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.id] }),
+  uniqueIndex("accounts_company_code_unique").on(table.companyId, table.code),
+  index("accounts_company_type_active_idx").on(table.companyId, table.type, table.isActive),
+]);
+
+export const voucherSeries = sqliteTable("voucher_series", {
+  companyId: text("company_id").notNull().references(() => company.id, { onDelete: "restrict" }),
+  id: text("id").notNull(),
+  prefix: text("prefix").notNull(),
+  nextNumber: integer("next_number").notNull().default(1),
+  padding: integer("padding").notNull().default(6),
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.id] }),
+  uniqueIndex("voucher_series_company_prefix_unique").on(table.companyId, table.prefix),
+]);
+
+export const journalEntries = sqliteTable("journal_entries", {
+  companyId: text("company_id").notNull().references(() => company.id, { onDelete: "restrict" }),
+  id: text("id").notNull(),
+  voucherNumber: text("voucher_number"),
+  seriesId: text("series_id"),
+  entryDate: text("entry_date").notNull(),
+  currency: text("currency").notNull().default("PHP"),
+  reference: text("reference"),
+  description: text("description"),
+  status: text("status").notNull().default("draft"),
+  sourceType: text("source_type"),
+  sourceId: text("source_id"),
+  createdBy: text("created_by"),
+  postedBy: text("posted_by"),
+  postedAt: text("posted_at"),
+  voidedBy: text("voided_by"),
+  voidedAt: text("voided_at"),
+  voidReason: text("void_reason"),
+  reversedEntryId: text("reversed_entry_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.id] }),
+  uniqueIndex("journal_entries_company_voucher_unique").on(table.companyId, table.voucherNumber),
+  index("journal_entries_company_status_date_idx").on(table.companyId, table.status, table.entryDate),
+]);
+
+export const journalLines = sqliteTable("journal_lines", {
+  companyId: text("company_id").notNull().references(() => company.id, { onDelete: "restrict" }),
+  id: text("id").notNull(),
+  entryId: text("entry_id").notNull(),
+  accountId: text("account_id").notNull(),
+  description: text("description"),
+  debitMinor: integer("debit_minor").notNull().default(0),
+  creditMinor: integer("credit_minor").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.id] }),
+  index("journal_lines_company_entry_idx").on(table.companyId, table.entryId),
+  index("journal_lines_company_account_idx").on(table.companyId, table.accountId),
+]);
+
+export const journalAttachments = sqliteTable("journal_attachments", {
+  companyId: text("company_id").notNull(),
+  id: text("id").notNull(),
+  entryId: text("entry_id").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  dataBase64: text("data_base64").notNull(),
+  uploadedBy: text("uploaded_by"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.companyId, table.id] }),
+  index("journal_attachments_company_entry_idx").on(table.companyId, table.entryId),
+]);
+
 // --- Relations ---
 export const userRelations = relations(userAdmin, ({ many, one }) => ({
   sessions: many(session),

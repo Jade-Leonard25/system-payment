@@ -61,6 +61,7 @@ only from the configured `public/` directory. Do not change the `main` or
 
 The shared frontend sidebar is implemented in
 [app-sidebar.jsx](./frontend/src/components/app-sidebar.jsx). Overview and
-Payroll & Employees are routed modules, and Audit log is available to members
-with the `audit.view` permission. Other planned accounting modules remain
-disabled until their screens and permissions exist.
+Payroll & Employees and Transactions are routed modules. Audit log is available
+to members with `audit.view`, and Transactions uses `ledger.view`,
+`ledger.create`, `ledger.post`, and `ledger.reverse`. Other planned accounting
+modules remain disabled until their screens and permissions exist.

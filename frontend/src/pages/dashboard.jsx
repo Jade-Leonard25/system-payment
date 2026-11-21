@@ -46,6 +46,7 @@ import { Switch } from "../components/ui/switch";
 import { apiRequest } from "../api-client";
 import AppSidebar from "../components/app-sidebar";
 import AuditLogPage from "./audit-log";
+import TransactionsPage from "./transactions";
 
 const SELECTED_COMPANY_KEY = "payroll_selected_company_id";
 
@@ -119,6 +120,7 @@ export default function Dashboard() {
   const userEmail = user?.email || "Email unavailable";
   const userRole = user?.role || "Role unavailable";
   const isAuditPage = location.pathname === "/audit";
+  const isTransactionsPage = location.pathname === "/transactions";
   const canViewAudit =
     auditAccess.companyId === selectedCompanyId && auditAccess.allowed;
   const isCheckingAuditAccess =
@@ -374,10 +376,10 @@ export default function Dashboard() {
             <SidebarTrigger aria-label="Toggle sidebar" />
             <div>
               <p className="text-sm font-semibold">
-                {isAuditPage ? "Audit log" : "Overview"}
+                {isAuditPage ? "Audit log" : isTransactionsPage ? "Transactions" : "Overview"}
               </p>
               <p className="hidden text-xs text-muted-foreground sm:block">
-                {isAuditPage ? "Company activity and integrity" : "Workspace overview"}
+                {isAuditPage ? "Company activity and integrity" : isTransactionsPage ? "Accounts and journal entries" : "Workspace overview"}
               </p>
             </div>
           </div>
@@ -437,7 +439,9 @@ export default function Dashboard() {
         </header>
 
         <main className="min-h-0 flex-1 space-y-6 overflow-auto p-4 md:p-6">
-          {isAuditPage ? (
+          {isTransactionsPage ? (
+            <TransactionsPage companyId={selectedCompanyId} />
+          ) : isAuditPage ? (
             <AuditLogPage
               companyId={selectedCompanyId}
               canView={canViewAudit}

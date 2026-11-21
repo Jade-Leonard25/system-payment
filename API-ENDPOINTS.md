@@ -150,6 +150,59 @@ and event insertion are committed in one guarded D1 batch. The legacy
 attendance-specific `audit_logs` table remains separate and is not rewritten
 as general audit history.
 
+## Transactions / ledger
+
+Base path: `/api/ledger`. Ledger operations require a company membership and
+one of `ledger.view`, `ledger.create`, `ledger.post`, or `ledger.reverse`.
+
+### `GET /api/ledger/accounts?companyId=<id>`
+
+List the company's chart of accounts ordered by account code.
+
+### `POST /api/ledger/accounts`
+
+Create an account. JSON fields include `companyId`, `code`, `name`, `type`
+(`asset`, `liability`, `equity`, `revenue`, or `expense`), `normalBalance`
+(`debit` or `credit`), `isHeader`, `isPostable`, `isActive`, and optional
+`parentId`. Header accounts are not postable.
+
+### `PUT /api/ledger/accounts/:id?companyId=<id>`
+
+Update an account. Accounts with posted lines can be deactivated but must not
+be deleted.
+
+### `DELETE /api/ledger/accounts/:id?companyId=<id>`
+
+Delete an account only if it has no posted journal lines. The API instead
+returns `409` and requires deactivation for posted accounts.
+
+### `GET /api/ledger/entries?companyId=<id>`
+
+List journal entries. Optional filters are `status`, `from`, and `to`.
+
+### `GET /api/ledger/entries/:id?companyId=<id>`
+
+Return an entry, its lines, and attachment metadata.
+
+### `POST /api/ledger/entries`
+
+Save a balanced draft journal entry. Amounts use integer minor units (PHP
+centavos). Every line has one debit or credit side, and the entry total must
+balance before the draft is saved. Attachments are base64 metadata limited by
+the Stage 2 UI and API payload size.
+
+### `POST /api/ledger/entries/:id/post`
+
+Post a draft. The entry must be balanced, the date must not fall in a closed
+period, and the gapless voucher series counter is advanced inside the posting
+transaction. Posted entries are immutable.
+
+### `POST /api/ledger/entries/:id/reverse`
+
+Create a reversing posted entry. The JSON body requires `companyId` and a
+non-empty `reason`. The original remains posted, and the reversal receives a
+new gapless voucher number.
+
 ## Employees
 
 Base path: `/api/employees`. All routes require an administrator session.

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { z } from "zod";
 import {
   getStayLoggedIn,
+  authBaseURL,
   markAdminRegistered,
   signIn,
 } from "../auth-client";
@@ -18,8 +19,7 @@ import {
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 
-const registerAdminURL =
-  "https://system-payroll-api.automation-payroll.workers.dev/api/key-products/register-admin";
+const registerAdminURL = `${authBaseURL}/api/key-products/register-admin`;
 
 const registrationSchema = z
   .object({

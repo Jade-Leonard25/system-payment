@@ -118,13 +118,9 @@ const RootLayout = () => {
     return createElement(Navigate, { to: "/login", replace: true });
   }
 
-  if (!isLoggedIn && location.pathname === "/activate" && hasRegisteredAdmin) {
-    return createElement(Navigate, { to: "/login", replace: true });
-  }
-
   if (
     !isLoggedIn &&
-    ["/dashboard", "/audit", "/createEmployees"].includes(location.pathname)
+    ["/dashboard", "/audit", "/transactions", "/createEmployees"].includes(location.pathname)
   ) {
     return createElement(Navigate, {
       to: "/login",
@@ -169,6 +165,7 @@ const routes = [
       { path: "register", Component: Register },
       { path: "dashboard", Component: Dashboard },
       { path: "audit", Component: Dashboard },
+      { path: "transactions", Component: Dashboard },
       {
         path: "createEmployees",
         lazy: async () => ({
