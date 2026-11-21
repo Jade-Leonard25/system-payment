@@ -98,6 +98,30 @@ rate is configurable per invoice and defaults to zero. Philippine tax settings
 and invoice tax treatment are [VERIFY] and should be reviewed with a licensed
 Philippine CPA or tax counsel.
 
+Invoice templates are company-scoped and editable via
+`GET/PUT /api/sales/invoice-template`. Issuer details and document styling are
+snapshotted on each invoice, so later template edits do not rewrite existing
+documents. Logo uploads accept PNG, JPEG, or WebP up to 400 KB. Template
+visibility, logo size/alignment, accent color, and clean/compact layout are
+available in print/PDF output.
+
+`POST /api/sales/invoices/batch` supports up to 20 active or manually selected
+customers per request and requires an `Idempotency-Key`. It creates a separate
+customer-linked invoice and sequential `INV-` number for each recipient; with
+`issue: true`, each invoice is posted with its own balanced journal entry in
+the same audited transaction. The per-company invoice and voucher counters are
+advanced atomically, so a failed batch consumes no numbers. Percentage/fixed
+discounts are calculated in minor units. Tax-inclusive inputs are accepted
+only where the documented half-up rule produces an exact centavo total that
+also satisfies the database tax invariant; other rounding-edge values must be
+entered as tax-exclusive or adjusted by the user.
+
+TIN and bank-account fields are intentionally not saved in invoice templates:
+the existing app has no configured encryption key for those sensitive values.
+Do not place such values in free-text payment instructions. Tax settings and
+Philippine invoice title/treatment remain [VERIFY] and should be reviewed with
+a licensed Philippine CPA or tax counsel.
+
 Invoice payment status is derived from allocations, never edited directly;
 credit notes reduce the outstanding balance but do not count as cash
 allocations. A credit note allocates its tax portion proportionally to the

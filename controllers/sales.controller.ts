@@ -10,6 +10,58 @@ type SalesEnv = { Bindings: Bindings };
 type InvoiceLineInput = { description: string; quantityMilli: number; unitPriceMinor: number };
 
 const salesController = new Hono<SalesEnv>();
+const defaultVisibility = {
+  logo: true,
+  customerEmail: true,
+  reference: true,
+  discount: true,
+  tax: true,
+  paymentNotes: true,
+  preparedBy: false,
+};
+const defaultTemplate = {
+  title: "INVOICE",
+  accentColor: "#111827",
+  layout: "clean" as const,
+  logoSize: "medium" as const,
+  logoAlignment: "left" as const,
+  visibility: defaultVisibility,
+  paymentInstructions: "",
+  terms: "",
+  preparedBy: "",
+};
+const issuerProfileSchema = z.object({
+  name: z.string().trim().max(160).default(""),
+  legalName: z.string().trim().max(160).nullable().default(null),
+  address: z.string().trim().max(1000).nullable().default(null),
+  email: z.string().trim().email().max(254).nullable().default(null),
+  phone: z.string().trim().max(64).nullable().default(null),
+  logo: z.string().max(600000).refine(
+    (value) => value === ""
+      || /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)
+      || /^https:\/\/[^\s]+$/i.test(value),
+    "Logo must be a PNG, JPEG, or WebP data image or an HTTPS URL",
+  ).default(""),
+}).strict();
+const templateSchema = z.object({
+  title: z.string().trim().min(1).max(40).default("INVOICE"),
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#111827"),
+  layout: z.enum(["clean", "compact"]).default("clean"),
+  logoSize: z.enum(["small", "medium", "large"]).default("medium"),
+  logoAlignment: z.enum(["left", "right"]).default("left"),
+  visibility: z.object({
+    logo: z.boolean().default(true),
+    customerEmail: z.boolean().default(true),
+    reference: z.boolean().default(true),
+    discount: z.boolean().default(true),
+    tax: z.boolean().default(true),
+    paymentNotes: z.boolean().default(true),
+    preparedBy: z.boolean().default(false),
+  }).strict().default(() => defaultVisibility),
+  paymentInstructions: z.string().trim().max(1000).default(""),
+  terms: z.string().trim().max(1000).default(""),
+  preparedBy: z.string().trim().max(160).default(""),
+}).strict().default(() => defaultTemplate);
 
 const customerSchema = z.object({
   companyId: z.string().trim().min(1),
@@ -28,12 +80,29 @@ const invoiceSchema = z.object({
   currency: z.string().trim().length(3).default("PHP"),
   reference: z.string().trim().max(128).nullable().optional(),
   description: z.string().trim().max(500).nullable().optional(),
+  issuerProfile: issuerProfileSchema.default(() => ({
+    name: "", legalName: null, address: null, email: null, phone: null, logo: "",
+  })),
+  template: templateSchema,
+  discountType: z.enum(["fixed", "percent"]).nullable().default(null),
+  discountValue: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
+  taxInclusive: z.boolean().default(false),
   taxRateBps: z.number().int().min(0).max(10000).default(0),
   lines: z.array(z.object({
     description: z.string().trim().min(1).max(255),
     quantityMilli: z.number().int().min(1).max(100000000),
     unitPriceMinor: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   }).strict()).min(1).max(100),
+}).strict();
+const invoiceBatchSchema = invoiceSchema.omit({ customerId: true }).extend({
+  customerIds: z.array(z.string().trim().min(1)).max(100).default([]),
+  applyToAllActive: z.boolean().default(false),
+  issue: z.boolean().default(false),
+}).strict();
+const invoiceTemplateUpdateSchema = z.object({
+  companyId: z.string().trim().min(1),
+  issuerProfile: issuerProfileSchema,
+  template: templateSchema,
 }).strict();
 
 const paymentSchema = z.object({
@@ -67,14 +136,50 @@ function roundedProduct(quantityMilli: number, unitPriceMinor: number) {
   return (BigInt(quantityMilli) * BigInt(unitPriceMinor) + 500n) / 1000n;
 }
 
-function invoiceAmounts(lines: InvoiceLineInput[], taxRateBps: number) {
-  const subtotal = lines.reduce((sum, line) => sum + roundedProduct(line.quantityMilli, line.unitPriceMinor), 0n);
+function invoiceAmounts(
+  lines: InvoiceLineInput[],
+  taxRateBps: number,
+  discountType: "fixed" | "percent" | null = null,
+  discountValue = 0,
+  taxInclusive = false,
+) {
+  const grossSubtotal = lines.reduce((sum, line) => sum + roundedProduct(line.quantityMilli, line.unitPriceMinor), 0n);
+  const discount = discountType === "percent"
+    ? (grossSubtotal * BigInt(discountValue) + 5000n) / 10000n
+    : discountType === "fixed" ? BigInt(discountValue) : 0n;
+  if (discount > grossSubtotal) return null;
+  const discountedGross = grossSubtotal - discount;
+  const subtotal = taxInclusive
+    ? (discountedGross * 10000n + BigInt(10000 + taxRateBps) / 2n) / BigInt(10000 + taxRateBps)
+    : discountedGross;
   const tax = (subtotal * BigInt(taxRateBps) + 5000n) / 10000n;
+  if (taxInclusive && subtotal + tax !== discountedGross) return null;
   const total = subtotal + tax;
-  if ([subtotal, tax, total].some((value) => value > BigInt(Number.MAX_SAFE_INTEGER))) {
+  if ([grossSubtotal, discount, subtotal, tax, total].some((value) => value > BigInt(Number.MAX_SAFE_INTEGER))) {
     return null;
   }
-  return { subtotal: Number(subtotal), tax: Number(tax), total: Number(total) };
+  return {
+    grossSubtotal: Number(grossSubtotal),
+    discount: Number(discount),
+    subtotal: Number(subtotal),
+    tax: Number(tax),
+    total: Number(total),
+  };
+}
+
+function safeIssuerProfileForAudit(profile: z.infer<typeof issuerProfileSchema>) {
+  return { ...profile, logo: profile.logo ? "[logo omitted]" : "" };
+}
+
+async function getInvoiceSeries(database: D1Database, companyId: string) {
+  return database.prepare(
+    `SELECT id, prefix, next_number AS nextNumber, padding
+     FROM sales_invoice_series WHERE company_id = ? ORDER BY prefix LIMIT 1`,
+  ).bind(companyId).first<{ id: string; prefix: string; nextNumber: number; padding: number }>();
+}
+
+function formatInvoiceNumber(series: { prefix: string; padding: number }, number: number) {
+  return `${series.prefix}${String(number).padStart(series.padding, "0")}`;
 }
 
 function stableJson(value: unknown): string {
@@ -204,13 +309,25 @@ function toComputedInvoice(row: Record<string, unknown>, today: string) {
       : applied > 0 ? "partially paid"
         : String(row.dueDate) < today ? "overdue" : "sent";
   }
-  return { ...row, status, appliedMinor: applied, creditMinor: credits, remainingMinor: remaining };
+  const { issuerProfileJson, invoiceTemplateJson, ...invoice } = row;
+  const issuerProfile = typeof issuerProfileJson === "string"
+    ? JSON.parse(issuerProfileJson)
+    : {};
+  const template = typeof invoiceTemplateJson === "string"
+    ? JSON.parse(invoiceTemplateJson)
+    : defaultTemplate;
+  return { ...invoice, issuerProfile, template, status, appliedMinor: applied, creditMinor: credits, remainingMinor: remaining };
 }
 
 const invoiceSelect = `SELECT i.id, i.customer_id AS customerId, c.name AS customerName,
+  c.email AS customerEmail, c.phone AS customerPhone, c.billing_address AS customerBillingAddress,
   i.invoice_number AS invoiceNumber, i.invoice_date AS invoiceDate, i.due_date AS dueDate,
   i.currency, i.reference, i.description, i.tax_rate_bps AS taxRateBps,
+  i.discount_minor AS discountMinor, i.tax_inclusive AS taxInclusive,
+  i.discount_type AS discountType, i.discount_value AS discountValue,
+  i.batch_id AS batchId, i.invoice_template_json AS invoiceTemplateJson,
   i.subtotal_minor AS subtotalMinor, i.tax_minor AS taxMinor, i.total_minor AS totalMinor,
+  i.issuer_profile_json AS issuerProfileJson,
   i.status, i.journal_entry_id AS journalEntryId, i.created_at AS createdAt,
   COALESCE((SELECT SUM(a.amount_minor) FROM sales_invoice_allocations a
     WHERE a.company_id = i.company_id AND a.invoice_id = i.id), 0) AS appliedMinor,
@@ -226,7 +343,62 @@ salesController.get("/access", async (c) => {
   if ("response" in user) return user.response;
   const access = await checkCompanyPermission(c.env.DB, user.userId, companyId, "sales.view");
   if (!access.member) return c.json({ error: "Company not found" }, 404);
-  return c.json({ allowed: access.allowed });
+  const [createAccess, issueAccess, paymentAccess] = await Promise.all([
+    checkCompanyPermission(c.env.DB, user.userId, companyId, "sales.create"),
+    checkCompanyPermission(c.env.DB, user.userId, companyId, "sales.issue"),
+    checkCompanyPermission(c.env.DB, user.userId, companyId, "sales.payment"),
+  ]);
+  return c.json({
+    allowed: access.allowed,
+    canCreate: createAccess.allowed,
+    canIssue: issueAccess.allowed,
+    canRecordPayment: paymentAccess.allowed,
+  });
+});
+
+salesController.get("/invoice-template", async (c) => {
+  const companyId = c.req.query("companyId") ?? "";
+  const access = await permission(c, companyId, "sales.view");
+  if ("response" in access) return access.response;
+  const row = await c.env.DB.prepare(
+    `SELECT issuer_profile_json AS issuerProfileJson, template_json AS templateJson
+     FROM sales_invoice_templates WHERE company_id=?`,
+  ).bind(companyId).first<{ issuerProfileJson: string; templateJson: string }>();
+  if (!row) return c.json({ error: "Invoice template is not configured for this company" }, 404);
+  return c.json({ data: { issuerProfile: JSON.parse(row.issuerProfileJson), template: JSON.parse(row.templateJson) } });
+});
+
+salesController.put("/invoice-template", async (c) => {
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return c.json({ error: "Request body must be valid JSON" }, 400); }
+  const parsed = invoiceTemplateUpdateSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid invoice template", details: parsed.error.flatten() }, 400);
+  const data = parsed.data;
+  const access = await permission(c, data.companyId, "sales.create");
+  if ("response" in access) return access.response;
+  const current = await c.env.DB.prepare(
+    `SELECT issuer_profile_json AS issuerProfileJson, template_json AS templateJson
+     FROM sales_invoice_templates WHERE company_id=?`,
+  ).bind(data.companyId).first<{ issuerProfileJson: string; templateJson: string }>();
+  if (!current) return c.json({ error: "Invoice template is not configured for this company" }, 404);
+  const now = new Date().toISOString();
+  await appendAuditEvent(c.env.DB, {
+    companyId: data.companyId, actorId: access.userId, ...auditRequestMetadata(c.req.raw.headers),
+    action: "sales.invoice_template.update", resourceType: "sales_invoice_template", resourceId: data.companyId,
+    before: {
+      issuerProfile: safeIssuerProfileForAudit(JSON.parse(current.issuerProfileJson)),
+      template: JSON.parse(current.templateJson),
+    },
+    after: { issuerProfile: safeIssuerProfileForAudit(data.issuerProfile), template: data.template },
+  }, [{
+    companyId: data.companyId,
+    statement: c.env.DB.prepare(
+      `UPDATE sales_invoice_templates SET issuer_profile_json=?, template_json=?, updated_by=?, updated_at=?
+       WHERE company_id=?`,
+    ).bind(JSON.stringify(data.issuerProfile), JSON.stringify(data.template), access.userId, now, data.companyId),
+    expectedChanges: 1,
+  }]);
+  return c.json({ success: true, data: { issuerProfile: data.issuerProfile, template: data.template } });
 });
 
 salesController.get("/customers", async (c) => {
@@ -327,24 +499,43 @@ salesController.post("/invoices", async (c) => {
   ).bind(data.companyId, data.customerId).first();
   if (!customer) return c.json({ error: "Customer not found or inactive" }, 404);
   const lines: InvoiceLineInput[] = data.lines;
-  const amounts = invoiceAmounts(lines, data.taxRateBps);
-  if (!amounts || amounts.subtotal <= 0) return c.json({ error: "Invoice amounts exceed supported limits or total zero" }, 400);
+  if (data.discountType === "percent" && data.discountValue > 10000) return c.json({ error: "Percentage discount cannot exceed 100%" }, 400);
+  const amounts = invoiceAmounts(lines, data.taxRateBps, data.discountType, data.discountValue, data.taxInclusive);
+  if (!amounts || amounts.subtotal <= 0) return c.json({ error: "Invoice amounts exceed supported limits, discount, or total zero" }, 400);
   const id = crypto.randomUUID();
-  const invoiceNumber = data.invoiceNumber?.trim() || `INV-${data.invoiceDate.replaceAll("-", "")}-${id.slice(0, 8).toUpperCase()}`;
+  const series = data.invoiceNumber?.trim() ? null : await getInvoiceSeries(c.env.DB, data.companyId);
+  if (!data.invoiceNumber?.trim() && !series) return c.json({ error: "No sales invoice number series is configured" }, 409);
+  const invoiceNumber = data.invoiceNumber?.trim() || (series ? formatInvoiceNumber(series, series.nextNumber) : "");
+  const duplicateNumber = await c.env.DB.prepare(
+    `SELECT 1 AS found FROM sales_invoices WHERE company_id=? AND invoice_number=? LIMIT 1`,
+  ).bind(data.companyId, invoiceNumber).first();
+  if (duplicateNumber) return c.json({ error: "Invoice number already exists in this company" }, 409);
   const now = new Date().toISOString();
-  const statements: { companyId: string; statement: D1PreparedStatement; expectedChanges: number }[] = [{
+  const statements: { companyId: string; statement: D1PreparedStatement; expectedChanges: number }[] = [];
+  if (series) statements.push({
+    companyId: data.companyId,
+    statement: c.env.DB.prepare(
+      `UPDATE sales_invoice_series SET next_number=next_number+1
+       WHERE company_id=? AND id=? AND next_number=?`,
+    ).bind(data.companyId, series.id, series.nextNumber),
+    expectedChanges: 1,
+  });
+  statements.push({
     companyId: data.companyId,
     statement: c.env.DB.prepare(
       `INSERT INTO sales_invoices (
         company_id, id, customer_id, invoice_number, invoice_date, due_date, currency,
-        reference, description, tax_rate_bps, subtotal_minor, tax_minor, total_minor,
+        reference, description, issuer_profile_json, invoice_template_json, discount_minor,
+        tax_inclusive, discount_type, discount_value, tax_rate_bps, subtotal_minor, tax_minor, total_minor, batch_id,
         status, journal_entry_id, created_by, issued_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, NULL, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'draft', NULL, ?, NULL, ?, ?)`,
     ).bind(data.companyId, id, data.customerId, invoiceNumber, data.invoiceDate, data.dueDate, data.currency.toUpperCase(),
-      data.reference ?? null, data.description ?? null, data.taxRateBps, amounts.subtotal, amounts.tax, amounts.total,
+      data.reference ?? null, data.description ?? null, JSON.stringify(data.issuerProfile), JSON.stringify(data.template),
+      amounts.discount, data.taxInclusive ? 1 : 0, data.discountType, data.discountValue, data.taxRateBps,
+      amounts.subtotal, amounts.tax, amounts.total,
       access.userId, now, now),
     expectedChanges: 1,
-  }];
+  });
   const lineRows = lines.map((line) => ({
     ...line,
     amountMinor: Number(roundedProduct(line.quantityMilli, line.unitPriceMinor)),
@@ -363,9 +554,252 @@ salesController.post("/invoices", async (c) => {
   await appendAuditEvent(c.env.DB, {
     companyId: data.companyId, actorId: access.userId, ...auditRequestMetadata(c.req.raw.headers),
     action: "sales.invoice.create", resourceType: "sales_invoice", resourceId: id,
-    after: { id, invoiceNumber, customerId: data.customerId, ...amounts, currency: data.currency.toUpperCase() },
+    after: { id, invoiceNumber, customerId: data.customerId, issuerProfile: safeIssuerProfileForAudit(data.issuerProfile), template: data.template, ...amounts, currency: data.currency.toUpperCase() },
   }, statements);
   return c.json({ success: true, data: { id, invoiceNumber, status: "draft", ...amounts } }, 201);
+});
+
+salesController.post("/invoices/batch", async (c) => {
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return c.json({ error: "Request body must be valid JSON" }, 400); }
+  const parsed = invoiceBatchSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid invoice batch", details: parsed.error.flatten() }, 400);
+  const data = parsed.data;
+  const access = await permission(c, data.companyId, "sales.create");
+  if ("response" in access) return access.response;
+  if (data.issue) {
+    const issueGrant = await checkCompanyPermission(c.env.DB, access.userId, data.companyId, "sales.issue");
+    if (!issueGrant.allowed) return c.json({ error: "Permission denied to issue invoices" }, 403);
+  }
+  const idempotencyKey = c.req.header("Idempotency-Key")?.trim() ?? "";
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 128) {
+    return c.json({ error: "A valid Idempotency-Key header is required for batch invoice creation" }, 400);
+  }
+  const hash = await payloadHash(data);
+  const previous = await c.env.DB.prepare(
+    `SELECT payload_hash AS payloadHash, response_json AS responseJson
+     FROM sales_idempotency WHERE company_id=? AND idempotency_key=? LIMIT 1`,
+  ).bind(data.companyId, idempotencyKey).first<{ payloadHash: string; responseJson: string }>();
+  if (previous) {
+    if (previous.payloadHash !== hash) return c.json({ error: "Idempotency key was already used with a different payload" }, 409);
+    return c.json(JSON.parse(previous.responseJson));
+  }
+  if (!validDate(data.invoiceDate) || !validDate(data.dueDate) || data.dueDate < data.invoiceDate) {
+    return c.json({ error: "Enter valid invoice and due dates; due date cannot be before invoice date" }, 400);
+  }
+  if (data.lines.length > 20) return c.json({ error: "Batch invoices are limited to 20 shared line items" }, 400);
+  if (!data.applyToAllActive && (data.customerIds.length === 0 || data.customerIds.length > 20)) {
+    return c.json({ error: "Select between 1 and 20 customers, or choose all active customers" }, 400);
+  }
+  if (data.discountType === "percent" && data.discountValue > 10000) {
+    return c.json({ error: "Percentage discount cannot exceed 100%" }, 400);
+  }
+  const amounts = invoiceAmounts(data.lines, data.taxRateBps, data.discountType, data.discountValue, data.taxInclusive);
+  if (!amounts || amounts.subtotal <= 0) {
+    return c.json({ error: "Invoice amounts exceed supported limits, discount, or total zero" }, 400);
+  }
+  const customerRows = data.applyToAllActive
+    ? await c.env.DB.prepare(
+      `SELECT id, name FROM sales_customers WHERE company_id=? AND is_active=1 ORDER BY name LIMIT 21`,
+    ).bind(data.companyId).all<{ id: string; name: string }>()
+    : await c.env.DB.prepare(
+      `SELECT id, name FROM sales_customers
+       WHERE company_id=? AND is_active=1 AND id IN (${data.customerIds.map(() => "?").join(",")})
+       ORDER BY name`,
+    ).bind(data.companyId, ...data.customerIds).all<{ id: string; name: string }>();
+  const customers = customerRows.results;
+  if (customers.length === 0) return c.json({ error: "No active customers match this batch" }, 400);
+  if (customers.length > 20) return c.json({ error: "A batch can include at most 20 active customers" }, 400);
+  if (!data.applyToAllActive && new Set(data.customerIds).size !== data.customerIds.length) {
+    return c.json({ error: "Customer selection contains duplicates" }, 400);
+  }
+  if (!data.applyToAllActive && customers.length !== data.customerIds.length) {
+    return c.json({ error: "One or more selected customers are inactive or outside this company" }, 404);
+  }
+  const invoiceSeries = await getInvoiceSeries(c.env.DB, data.companyId);
+  if (!invoiceSeries) return c.json({ error: "No sales invoice number series is configured" }, 409);
+  let voucherSeries: Awaited<ReturnType<typeof getVoucherSeries>> = null;
+  let accounts = new Map<string, string>();
+  if (data.issue) {
+    const periodError = await postPermissionError(c.env.DB, data.companyId, data.invoiceDate);
+    if (periodError) return c.json({ error: periodError }, 409);
+    accounts = await activeAccountIds(c.env.DB, data.companyId, ["1100", "4000", "2200"]);
+    if (!accounts.has("1100") || !accounts.has("4000") || (amounts.tax > 0 && !accounts.has("2200"))) {
+      return c.json({ error: "Configure active postable Accounts Receivable (1100), Service Revenue (4000), and Output Tax (2200) accounts first" }, 409);
+    }
+    voucherSeries = await getVoucherSeries(c.env.DB, data.companyId);
+    if (!voucherSeries) return c.json({ error: "No journal voucher series is configured" }, 409);
+  }
+  if (invoiceSeries.nextNumber + customers.length - 1 > Number.MAX_SAFE_INTEGER) {
+    return c.json({ error: "Invoice number series is exhausted" }, 409);
+  }
+  if (voucherSeries && voucherSeries.nextNumber + customers.length - 1 > Number.MAX_SAFE_INTEGER) {
+    return c.json({ error: "Journal voucher series is exhausted" }, 409);
+  }
+
+  const batchId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const arId = accounts.get("1100");
+  const revenueId = accounts.get("4000");
+  const taxId = accounts.get("2200");
+  const invoiceResults: {
+    id: string;
+    customerId: string;
+    customerName: string;
+    invoiceNumber: string;
+    status: string;
+    totalMinor: number;
+    journalEntryId?: string;
+    voucherNumber?: string;
+  }[] = [];
+  const mutations: { companyId: string; statement: D1PreparedStatement; expectedChanges: number }[] = [
+    {
+      companyId: data.companyId,
+      statement: c.env.DB.prepare(
+        `UPDATE sales_invoice_series SET next_number=next_number+?
+         WHERE company_id=? AND id=? AND next_number=?`,
+      ).bind(customers.length, data.companyId, invoiceSeries.id, invoiceSeries.nextNumber),
+      expectedChanges: 1,
+    },
+  ];
+  if (voucherSeries) mutations.push({
+    companyId: data.companyId,
+    statement: c.env.DB.prepare(
+      `UPDATE voucher_series SET next_number=next_number+?
+       WHERE company_id=? AND id=? AND next_number=?`,
+    ).bind(customers.length, data.companyId, voucherSeries.id, voucherSeries.nextNumber),
+    expectedChanges: 1,
+  });
+
+  for (const [index, customer] of customers.entries()) {
+    const invoiceId = crypto.randomUUID();
+    const invoiceNumber = formatInvoiceNumber(invoiceSeries, invoiceSeries.nextNumber + index);
+    const journalEntryId = data.issue ? crypto.randomUUID() : undefined;
+    const voucherNumber = voucherSeries
+      ? `${voucherSeries.prefix}${String(voucherSeries.nextNumber + index).padStart(voucherSeries.padding, "0")}`
+      : undefined;
+    mutations.push({
+      companyId: data.companyId,
+      statement: c.env.DB.prepare(
+        `INSERT INTO sales_invoices (
+          company_id,id,customer_id,invoice_number,invoice_date,due_date,currency,reference,description,
+          issuer_profile_json,invoice_template_json,discount_minor,tax_inclusive,discount_type,discount_value,
+          tax_rate_bps,subtotal_minor,tax_minor,total_minor,batch_id,status,journal_entry_id,created_by,
+          issued_at,created_at,updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',NULL,?,NULL,?,?)`,
+      ).bind(
+        data.companyId, invoiceId, customer.id, invoiceNumber, data.invoiceDate, data.dueDate,
+        data.currency.toUpperCase(), data.reference ?? null, data.description ?? null,
+        JSON.stringify(data.issuerProfile), JSON.stringify(data.template), amounts.discount,
+        data.taxInclusive ? 1 : 0, data.discountType, data.discountValue, data.taxRateBps,
+        amounts.subtotal, amounts.tax, amounts.total, batchId, access.userId, now, now,
+      ),
+      expectedChanges: 1,
+    });
+    for (const line of data.lines) {
+      mutations.push({
+        companyId: data.companyId,
+        statement: c.env.DB.prepare(
+          `INSERT INTO sales_invoice_lines
+           (company_id,id,invoice_id,description,quantity_milli,unit_price_minor,amount_minor)
+           VALUES (?,?,?,?,?,?,?)`,
+        ).bind(
+          data.companyId, crypto.randomUUID(), invoiceId, line.description,
+          line.quantityMilli, line.unitPriceMinor,
+          Number(roundedProduct(line.quantityMilli, line.unitPriceMinor)),
+        ),
+        expectedChanges: 1,
+      });
+    }
+    if (journalEntryId && voucherNumber && voucherSeries && arId && revenueId) {
+      const journalLines = [
+        { accountId: arId, description: `Invoice ${invoiceNumber}`, debitMinor: amounts.total, creditMinor: 0 },
+        { accountId: revenueId, description: `Invoice ${invoiceNumber} revenue`, debitMinor: 0, creditMinor: amounts.subtotal },
+        ...(amounts.tax > 0 && taxId
+          ? [{ accountId: taxId, description: `Invoice ${invoiceNumber} tax`, debitMinor: 0, creditMinor: amounts.tax }]
+          : []),
+      ];
+      mutations.push({
+        companyId: data.companyId,
+        statement: addPostedEntryStatements(c.env.DB, {
+          companyId: data.companyId, entryId: journalEntryId, date: data.invoiceDate,
+          currency: data.currency.toUpperCase(), reference: invoiceNumber,
+          description: `Sales invoice ${invoiceNumber}`, sourceType: "sales_invoice",
+          sourceId: invoiceId, actorId: access.userId, lines: journalLines, now,
+        }),
+        expectedChanges: 1,
+      });
+      for (const statement of addEntryLines(c.env.DB, data.companyId, journalEntryId, journalLines)) {
+        mutations.push({ companyId: data.companyId, statement, expectedChanges: 1 });
+      }
+      mutations.push({
+        companyId: data.companyId,
+        statement: c.env.DB.prepare(
+          `UPDATE journal_entries
+           SET status='posted',voucher_number=?,series_id=?,posted_by=?,posted_at=?,updated_at=?
+           WHERE company_id=? AND id=? AND status='draft'`,
+        ).bind(voucherNumber, voucherSeries.id, access.userId, now, now, data.companyId, journalEntryId),
+        expectedChanges: 1,
+      });
+      mutations.push({
+        companyId: data.companyId,
+        statement: c.env.DB.prepare(
+          `UPDATE sales_invoices SET status='issued',journal_entry_id=?,issued_at=?,updated_at=?
+           WHERE company_id=? AND id=? AND status='draft'`,
+        ).bind(journalEntryId, now, now, data.companyId, invoiceId),
+        expectedChanges: 1,
+      });
+    }
+    invoiceResults.push({
+      id: invoiceId,
+      customerId: customer.id,
+      customerName: customer.name,
+      invoiceNumber,
+      status: data.issue ? "sent" : "draft",
+      totalMinor: amounts.total,
+      ...(journalEntryId ? { journalEntryId } : {}),
+      ...(voucherNumber ? { voucherNumber } : {}),
+    });
+  }
+
+  const responseBody = { success: true, data: { batchId, invoices: invoiceResults } };
+  mutations.push({
+    companyId: data.companyId,
+    statement: c.env.DB.prepare(
+      `INSERT INTO sales_idempotency (company_id,idempotency_key,payload_hash,response_json,created_at)
+       VALUES (?,?,?,?,?)`,
+    ).bind(data.companyId, idempotencyKey, hash, JSON.stringify(responseBody), now),
+    expectedChanges: 1,
+  });
+  try {
+    await appendAuditEvent(c.env.DB, {
+      companyId: data.companyId, actorId: access.userId, ...auditRequestMetadata(c.req.raw.headers),
+      action: "sales.invoice.batch_create", resourceType: "sales_invoice_batch", resourceId: batchId,
+      after: {
+        batchId,
+        issue: data.issue,
+        invoices: invoiceResults.map(({ id, customerId, invoiceNumber, status, totalMinor, voucherNumber: voucher }) => ({
+          id, customerId, invoiceNumber, status, totalMinor, voucherNumber: voucher,
+        })),
+        issuerProfile: safeIssuerProfileForAudit(data.issuerProfile),
+        template: data.template,
+      },
+    }, mutations);
+  } catch (error) {
+    const retry = await c.env.DB.prepare(
+      `SELECT payload_hash AS payloadHash, response_json AS responseJson
+       FROM sales_idempotency WHERE company_id=? AND idempotency_key=? LIMIT 1`,
+    ).bind(data.companyId, idempotencyKey).first<{ payloadHash: string; responseJson: string }>();
+    if (retry) {
+      if (retry.payloadHash !== hash) return c.json({ error: "Idempotency key was already used with a different payload" }, 409);
+      return c.json(JSON.parse(retry.responseJson));
+    }
+    if (error instanceof Error && error.message.includes("mutation_result")) {
+      return c.json({ error: "Invoice or voucher series changed concurrently; retry this batch with a new idempotency key" }, 409);
+    }
+    throw error;
+  }
+  return c.json(responseBody, 201);
 });
 
 salesController.put("/invoices/:id", async (c) => {
@@ -389,23 +823,31 @@ salesController.put("/invoices/:id", async (c) => {
     `SELECT id FROM sales_customers WHERE company_id = ? AND id = ? AND is_active = 1`,
   ).bind(data.companyId, data.customerId).first();
   if (!customer) return c.json({ error: "Customer not found or inactive" }, 404);
-  const amounts = invoiceAmounts(data.lines, data.taxRateBps);
-  if (!amounts || amounts.subtotal <= 0) return c.json({ error: "Invoice amounts exceed supported limits or total zero" }, 400);
+  if (data.discountType === "percent" && data.discountValue > 10000) return c.json({ error: "Percentage discount cannot exceed 100%" }, 400);
+  const amounts = invoiceAmounts(data.lines, data.taxRateBps, data.discountType, data.discountValue, data.taxInclusive);
+  if (!amounts || amounts.subtotal <= 0) return c.json({ error: "Invoice amounts exceed supported limits, discount, or total zero" }, 400);
   const lines = await c.env.DB.prepare(
     `SELECT id FROM sales_invoice_lines WHERE company_id = ? AND invoice_id = ?`,
   ).bind(data.companyId, id).all<{ id: string }>();
   if (lines.results.length === 0) return c.json({ error: "Draft invoice lines are missing and cannot be safely replaced" }, 409);
   const invoiceNumber = data.invoiceNumber?.trim() || current.invoiceNumber;
+  const duplicateNumber = await c.env.DB.prepare(
+    `SELECT 1 AS found FROM sales_invoices WHERE company_id=? AND invoice_number=? AND id!=? LIMIT 1`,
+  ).bind(data.companyId, invoiceNumber, id).first();
+  if (duplicateNumber) return c.json({ error: "Invoice number already exists in this company" }, 409);
   const now = new Date().toISOString();
   const mutations: { companyId: string; statement: D1PreparedStatement; expectedChanges: number }[] = [
     {
       companyId: data.companyId,
       statement: c.env.DB.prepare(
         `UPDATE sales_invoices SET customer_id=?, invoice_number=?, invoice_date=?, due_date=?,
-           currency=?, reference=?, description=?, tax_rate_bps=?, subtotal_minor=?, tax_minor=?,
+           currency=?, reference=?, description=?, issuer_profile_json=?, invoice_template_json=?,
+           discount_minor=?, tax_inclusive=?, discount_type=?, discount_value=?, tax_rate_bps=?, subtotal_minor=?, tax_minor=?,
            total_minor=?, updated_at=? WHERE company_id=? AND id=? AND status='draft'`,
       ).bind(data.customerId, invoiceNumber, data.invoiceDate, data.dueDate, data.currency.toUpperCase(),
-        data.reference ?? null, data.description ?? null, data.taxRateBps, amounts.subtotal, amounts.tax, amounts.total, now, data.companyId, id),
+        data.reference ?? null, data.description ?? null, JSON.stringify(data.issuerProfile), JSON.stringify(data.template),
+        amounts.discount, data.taxInclusive ? 1 : 0, data.discountType, data.discountValue, data.taxRateBps,
+        amounts.subtotal, amounts.tax, amounts.total, now, data.companyId, id),
       expectedChanges: 1,
     },
     {
@@ -430,7 +872,7 @@ salesController.put("/invoices/:id", async (c) => {
     companyId: data.companyId, actorId: access.userId, ...auditRequestMetadata(c.req.raw.headers),
     action: "sales.invoice.update", resourceType: "sales_invoice", resourceId: id,
     before: { status: current.status, invoiceNumber: current.invoiceNumber },
-    after: { status: "draft", invoiceNumber, ...amounts },
+    after: { status: "draft", invoiceNumber, issuerProfile: safeIssuerProfileForAudit(data.issuerProfile), template: data.template, ...amounts },
   }, mutations);
   return c.json({ success: true });
 });

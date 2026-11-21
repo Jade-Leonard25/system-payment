@@ -99,6 +99,13 @@
       "when": 1795311000000,
       "tag": "0013_sales_receivables",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1795312000000,
+      "tag": "0014_invoice_branding",
+      "breakpoints": true
     }
   ]
 }
