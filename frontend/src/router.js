@@ -124,7 +124,7 @@ const RootLayout = () => {
 
   if (
     !isLoggedIn &&
-    ["/dashboard", "/createEmployees"].includes(location.pathname)
+    ["/dashboard", "/audit", "/createEmployees"].includes(location.pathname)
   ) {
     return createElement(Navigate, {
       to: "/login",
@@ -168,6 +168,7 @@ const routes = [
       { path: "activate", Component: App },
       { path: "register", Component: Register },
       { path: "dashboard", Component: Dashboard },
+      { path: "audit", Component: Dashboard },
       {
         path: "createEmployees",
         lazy: async () => ({

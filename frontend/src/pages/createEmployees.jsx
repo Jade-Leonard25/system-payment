@@ -4,14 +4,12 @@ import {
   Download,
   FilePlus2,
   FileUp,
-  LayoutDashboard,
   LoaderCircle,
   Redo2,
   Save,
   Undo2,
-  Users,
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "@/components/ui/toast";
 import {
   Menubar,
@@ -23,22 +21,14 @@ import {
 } from "@/components/ui/menubar";
 import { Button } from "@/components/ui/button";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
   SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useSession } from "../auth-client";
 import { apiRequest } from "../api-client";
 import { columnName, parseCsv } from "../lib/csv";
+import AppSidebar from "../components/app-sidebar";
 
 const STORAGE_KEY = "payroll_mock_employees_workbook";
 const SELECTED_COMPANY_KEY = "payroll_selected_company_id";
@@ -158,11 +148,6 @@ const COLUMN = {
   backendId: 18,
 };
 
-const navigationItems = [
-  { label: "Dashboard", href: "/dashboard", Icon: LayoutDashboard },
-  { label: "Employees", href: "/createEmployees", Icon: Users },
-];
-
 function replaceSheetWithRows(sheet, parsedRows) {
   const headers = parsedRows[0].map((header) => header.trim());
   if (headers.some((header) => !header)) {
@@ -240,6 +225,7 @@ function replaceSheetWithRows(sheet, parsedRows) {
 }
 
 export default function CreateEmployees() {
+  const navigate = useNavigate();
   const containerRef = useRef(null);
   const csvInputRef = useRef(null);
   const payrollImportInputRef = useRef(null);
@@ -1051,42 +1037,24 @@ export default function CreateEmployees() {
 
   return (
     <SidebarProvider className="h-full min-h-0 bg-background">
-      <Sidebar collapsible="icon" variant="inset">
-        <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
-          <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg border">
-            <LayoutDashboard className="size-4" aria-hidden="true" />
-          </div>
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-sm font-semibold">Payroll</p>
-            <p className="truncate text-xs text-muted-foreground">
-              Admin workspace
-            </p>
-          </div>
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navigationItems.map(({ label, href, Icon }) => (
-                <SidebarMenuItem key={href}>
-                  <SidebarMenuButton
-                    render={<Link to={href} />}
-                    isActive={href === "/createEmployees"}
-                    tooltip={label}
-                  >
-                    <Icon aria-hidden="true" />
-                    <span>{label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-      </Sidebar>
+      <AppSidebar
+        user={session?.user}
+        activePath="/createEmployees"
+        companies={companies}
+        selectedCompanyId={selectedCompanyId}
+        isLoadingCompanies={isLoadingCompanies}
+        onCompanyChange={(companyId) => {
+          setSelectedCompanyId(companyId);
+          if (companyId) {
+            window.localStorage.setItem(SELECTED_COMPANY_KEY, companyId);
+          } else {
+            window.localStorage.removeItem(SELECTED_COMPANY_KEY);
+          }
+        }}
+        onSettingsClick={() =>
+          navigate("/dashboard", { state: { openSettings: true } })
+        }
+      />
 
       <SidebarInset className="h-full min-h-0 bg-muted/30">
         <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-2 md:p-3">
@@ -1095,35 +1063,7 @@ export default function CreateEmployees() {
           <SidebarTrigger aria-label="Toggle sidebar" />
           <h1 className="text-lg font-semibold tracking-tight">Employees</h1>
           </div>
-          <label className="flex items-center gap-2 text-sm font-medium">
-            Company
-            <select
-              value={selectedCompanyId}
-              onChange={(event) => {
-                const companyId = event.target.value;
-                setSelectedCompanyId(companyId);
-                if (companyId) {
-                  window.localStorage.setItem(SELECTED_COMPANY_KEY, companyId);
-                } else {
-                  window.localStorage.removeItem(SELECTED_COMPANY_KEY);
-                }
-              }}
-              disabled={!companies.length}
-              className="h-8 min-w-48 rounded-md border bg-background px-3 font-normal"
-            >
-              {companies.length ? (
-                companies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.name}
-                  </option>
-                ))
-              ) : (
-                <option value="">
-                  {isLoadingCompanies ? "Loading companies…" : "No company available"}
-                </option>
-              )}
-            </select>
-          </label>
+
           <p className="text-xs text-muted-foreground" role="status">
             {status}
           </p>

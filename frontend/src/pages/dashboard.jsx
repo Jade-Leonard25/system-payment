@@ -38,22 +38,14 @@ import {
   DrawerTitle,
 } from "../components/ui/drawer";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
   SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
 } from "../components/ui/sidebar";
 import { Switch } from "../components/ui/switch";
 import { apiRequest } from "../api-client";
+import AppSidebar from "../components/app-sidebar";
+import AuditLogPage from "./audit-log";
 
 const SELECTED_COMPANY_KEY = "payroll_selected_company_id";
 
@@ -99,7 +91,9 @@ export default function Dashboard() {
   const { data: session } = useSession();
   const [error, setError] = useState("");
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(
+    () => Boolean(location.state?.openSettings),
+  );
   const [stayLoggedIn, setStayLoggedIn] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [companyName, setCompanyName] = useState("");
@@ -111,6 +105,11 @@ export default function Dashboard() {
   const [selectedCompanyId, setSelectedCompanyId] = useState(
     () => window.localStorage.getItem(SELECTED_COMPANY_KEY) || "",
   );
+  const [auditAccess, setAuditAccess] = useState({
+    companyId: "",
+    allowed: false,
+    error: "",
+  });
   const [rosterEmployees, setRosterEmployees] = useState([]);
   const [attendanceLogs, setAttendanceLogs] = useState([]);
   const [loadedAttendanceCompanyId, setLoadedAttendanceCompanyId] = useState("");
@@ -119,6 +118,13 @@ export default function Dashboard() {
   const userName = user?.name || "Account";
   const userEmail = user?.email || "Email unavailable";
   const userRole = user?.role || "Role unavailable";
+  const isAuditPage = location.pathname === "/audit";
+  const canViewAudit =
+    auditAccess.companyId === selectedCompanyId && auditAccess.allowed;
+  const isCheckingAuditAccess =
+    Boolean(selectedCompanyId) && auditAccess.companyId !== selectedCompanyId;
+  const auditPermissionError =
+    auditAccess.companyId === selectedCompanyId ? auditAccess.error : "";
   const today = getLocalClock().logDate;
   const attendanceLoaded =
     Boolean(selectedCompanyId) &&
@@ -164,6 +170,42 @@ export default function Dashboard() {
           setLoadedAttendanceCompanyId(selectedCompanyId);
         }
       })
+
+    return () => {
+      active = false;
+    };
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedCompanyId) return undefined;
+
+    const query = new URLSearchParams({ companyId: selectedCompanyId });
+    apiRequest(`/api/audit/access?${query}`)
+      .then((result) => {
+        if (active) {
+          setAuditAccess({
+            companyId: selectedCompanyId,
+            allowed: result?.allowed === true,
+            error: "",
+          });
+        }
+      })
+      .catch((permissionError) => {
+        if (!active) return;
+        const message =
+          permissionError instanceof Error
+            ? permissionError.message
+            : "Could not check audit-log access.";
+        setAuditAccess({
+          companyId: selectedCompanyId,
+          allowed: false,
+          error:
+            message === "Permission denied" || message === "Company not found"
+              ? ""
+              : message,
+        });
+      });
 
     return () => {
       active = false;
@@ -230,7 +272,7 @@ export default function Dashboard() {
     if (!adminId) return undefined;
 
     let active = true;
-    apiRequest(`/api/companies/admin/${encodeURIComponent(adminId)}`)
+    apiRequest("/api/companies/accessible")
       .then((result) => {
         if (!active) return;
         const ownedCompanies = Array.isArray(result?.data) ? result.data : [];
@@ -307,72 +349,35 @@ export default function Dashboard() {
   return (
     <>
     <SidebarProvider className="h-full min-h-0 bg-background">
-      <Sidebar collapsible="icon" variant="inset">
-        <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg border border-sidebar-border">
-              <LayoutDashboard className="size-4" aria-hidden="true" />
-            </div>
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-semibold">Payroll</p>
-              <p className="truncate text-xs text-muted-foreground">
-                Admin workspace
-              </p>
-            </div>
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    render={<Link to="/dashboard" />}
-                    isActive={location.pathname === "/dashboard"}
-                    tooltip="Dashboard"
-                  >
-                    <LayoutDashboard aria-hidden="true" />
-                    <span>Dashboard</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    render={<Link to="/createEmployees" />}
-                    isActive={location.pathname === "/createEmployees"}
-                    tooltip="Employees"
-                  >
-                    <Users aria-hidden="true" />
-                    <span>Employees</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter className="border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
-            <Avatar>
-              <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-medium">{userName}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {userRole}
-              </p>
-            </div>
-          </div>
-        </SidebarFooter>
-      </Sidebar>
+      <AppSidebar
+        user={user}
+        activePath={location.pathname}
+        onSettingsClick={() => setSettingsOpen(true)}
+        companies={companies}
+        selectedCompanyId={selectedCompanyId}
+        canViewAudit={canViewAudit}
+        isLoadingCompanies={isLoadingCompanies}
+        onCompanyChange={(companyId) => {
+          setSelectedCompanyId(companyId);
+          setAttendanceError("");
+          if (companyId) {
+            window.localStorage.setItem(SELECTED_COMPANY_KEY, companyId);
+          } else {
+            window.localStorage.removeItem(SELECTED_COMPANY_KEY);
+          }
+        }}
+      />
 
       <SidebarInset className="h-full min-h-0 bg-muted/30">
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background px-4 md:px-6">
           <div className="flex items-center gap-3">
             <SidebarTrigger aria-label="Toggle sidebar" />
             <div>
-              <p className="text-sm font-semibold">Dashboard</p>
+              <p className="text-sm font-semibold">
+                {isAuditPage ? "Audit log" : "Overview"}
+              </p>
               <p className="hidden text-xs text-muted-foreground sm:block">
-                Workspace overview
+                {isAuditPage ? "Company activity and integrity" : "Workspace overview"}
               </p>
             </div>
           </div>
@@ -432,6 +437,15 @@ export default function Dashboard() {
         </header>
 
         <main className="min-h-0 flex-1 space-y-6 overflow-auto p-4 md:p-6">
+          {isAuditPage ? (
+            <AuditLogPage
+              companyId={selectedCompanyId}
+              canView={canViewAudit}
+              isCheckingAccess={isCheckingAuditAccess}
+              permissionError={auditPermissionError}
+            />
+          ) : (
+            <>
           {error && (
             <p
               role="alert"
@@ -451,36 +465,6 @@ export default function Dashboard() {
                 glance.
               </p>
             </div>
-            <label className="grid min-w-56 gap-1 text-sm font-medium">
-              Company
-              <select
-                value={selectedCompanyId}
-                onChange={(event) => {
-                  const companyId = event.target.value;
-                  setSelectedCompanyId(companyId);
-                  setAttendanceError("");
-                  if (companyId) {
-                    window.localStorage.setItem(SELECTED_COMPANY_KEY, companyId);
-                  } else {
-                    window.localStorage.removeItem(SELECTED_COMPANY_KEY);
-                  }
-                }}
-                disabled={isLoadingCompanies || companies.length === 0}
-                className="h-10 rounded-md border bg-background px-3 font-normal"
-              >
-                {companies.length ? (
-                  companies.map((company) => (
-                    <option key={company.id} value={company.id}>
-                      {company.name}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">
-                    {isLoadingCompanies ? "Loading companies…" : "No company yet"}
-                  </option>
-                )}
-              </select>
-            </label>
           </section>
 
           <section
@@ -657,6 +641,8 @@ export default function Dashboard() {
             <LogOut aria-hidden="true" />
             {isSigningOut ? "Logging out…" : "Log out"}
           </Button>
+            </>
+          )}
         </main>
       </SidebarInset>
     </SidebarProvider>

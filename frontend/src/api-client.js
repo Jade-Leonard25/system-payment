@@ -1,6 +1,9 @@
 import { AUTH_TOKEN_KEY, authBaseURL } from "./auth-client";
 
-export async function apiRequest(path, { method = "GET", body } = {}) {
+export async function apiRequest(
+  path,
+  { method = "GET", body, responseType = "json" } = {},
+) {
   const headers = new Headers();
   const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -29,6 +32,7 @@ export async function apiRequest(path, { method = "GET", body } = {}) {
         `Request failed with status ${response.status}.`,
     );
   }
+  if (responseType === "text") return responseText;
   if (responseText && result === null) {
     throw new Error("The server returned an invalid response.");
   }

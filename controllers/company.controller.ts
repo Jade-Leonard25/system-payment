@@ -1,9 +1,11 @@
 import { Hono } from "hono";
+import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq } from "drizzle-orm";
 import { company } from "../schema/schema";
 import { generateCustomId } from "../customID";
-import { requireAdmin } from "./admin-access";
+import { requireAdmin, requireUser } from "./admin-access";
+import { appendAuditEvent, auditRequestMetadata } from "../services/audit";
 
 type Bindings = { DB: D1Database };
 const companyController = new Hono<{ Bindings: Bindings }>();
@@ -37,8 +39,59 @@ companyController.post("/", async (c) => {
     updatedAt: now,
   };
 
-  await db.insert(company).values(newCompany);
+  const createdAt = Math.floor(now.getTime() / 1000);
+  const insertStatement = c.env.DB.prepare(
+    `INSERT INTO company (
+       id, admin_id, name, legal_name, address, contact_number, email,
+       company_logo, tax_id, rdo_code, employer_sss, employer_philhealth,
+       employer_pag_ibig, comp_tax_reduct, company_permit, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    newCompany.id,
+    newCompany.adminId,
+    newCompany.name,
+    newCompany.legalName,
+    newCompany.address,
+    newCompany.contactNumber,
+    newCompany.email,
+    newCompany.companyLogo,
+    newCompany.taxId,
+    newCompany.rdoCode,
+    newCompany.employerSSS,
+    newCompany.employerPhilHealth,
+    newCompany.employerPagIbig,
+    newCompany.compTaxReduct,
+    newCompany.compPermit,
+    createdAt,
+    createdAt,
+  );
+  await appendAuditEvent(c.env.DB, {
+    companyId: newCompany.id,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "company.create",
+    resourceType: "company",
+    resourceId: newCompany.id,
+    after: newCompany,
+  }, [{ companyId: newCompany.id, statement: insertStatement, expectedChanges: 1 }]);
   return c.json({ success: true, data: newCompany }, 201);
+});
+
+companyController.get("/accessible", async (c) => {
+  const access = await requireUser(c);
+  if ("response" in access) return access.response;
+
+  const results = await c.env.DB.prepare(
+    `SELECT DISTINCT c.*
+     FROM company AS c
+     LEFT JOIN company_memberships AS m
+       ON m.company_id = c.id AND m.user_id = ?
+     WHERE c.admin_id = ? OR m.user_id = ?
+     ORDER BY c.name`,
+  )
+    .bind(access.userId, access.userId, access.userId)
+    .all();
+  return c.json({ data: results.results });
 });
 
 // Get all companies managed by an admin
@@ -67,12 +120,12 @@ companyController.put("/:id", async (c) => {
 
   const db = drizzle(c.env.DB);
   const id = c.req.param("id");
-  const [ownedCompany] = await db
-    .select({ id: company.id })
+  const [before] = await db
+    .select()
     .from(company)
     .where(and(eq(company.id, id), eq(company.adminId, access.userId)))
     .limit(1);
-  if (!ownedCompany) {
+  if (!before) {
     return c.json({ error: "Company not found" }, 404);
   }
 
@@ -92,11 +145,52 @@ companyController.put("/:id", async (c) => {
   if (typeof body.compTaxReduct === "number") updates.compTaxReduct = body.compTaxReduct;
   if (body.compPermit === null || typeof body.compPermit === "string") updates.compPermit = body.compPermit;
 
-  await db
-    .update(company)
-    .set(updates)
-    .where(eq(company.id, id));
-
+  const after = { ...before, ...updates };
+  const columnNames: Record<string, string> = {
+    updatedAt: "updated_at",
+    name: "name",
+    legalName: "legal_name",
+    address: "address",
+    contactNumber: "contact_number",
+    email: "email",
+    companyLogo: "company_logo",
+    taxId: "tax_id",
+    rdoCode: "rdo_code",
+    employerSSS: "employer_sss",
+    employerPhilHealth: "employer_philhealth",
+    employerPagIbig: "employer_pag_ibig",
+    compTaxReduct: "comp_tax_reduct",
+    compPermit: "company_permit",
+  };
+  const assignments = Object.entries(updates).map(([key, value]) => {
+    if (key === "updatedAt") {
+      if (!(value instanceof Date)) {
+        throw new Error("Company update timestamp is invalid.");
+      }
+      return {
+        column: columnNames[key],
+        value: Math.floor(value.getTime() / 1000),
+      };
+    }
+    return { column: columnNames[key], value };
+  });
+  if (assignments.some(({ column }) => !column)) {
+    throw new Error("Company update contains an unsupported field.");
+  }
+  const updateStatement = c.env.DB.prepare(
+    `UPDATE company SET ${assignments.map(({ column }) => `"${column}" = ?`).join(", ")}
+     WHERE id = ? AND admin_id = ?`,
+  ).bind(...assignments.map(({ value }) => value), id, access.userId);
+  await appendAuditEvent(c.env.DB, {
+    companyId: id,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "company.update",
+    resourceType: "company",
+    resourceId: id,
+    before,
+    after,
+  }, [{ companyId: id, statement: updateStatement, expectedChanges: 1 }]);
   return c.json({ success: true });
 });
 

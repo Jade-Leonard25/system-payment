@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { D1Database } from "@cloudflare/workers-types";
 import { createAuth } from "./auth";
 import companyController from "./controllers/company.controller";
 import employeeController from "./controllers/employee.controller";
 import attendanceController from "./controllers/attendance.controller";
 import adminController from "./controllers/admin.controller";
 import keyProductController from "./controllers/key-product.controller";
+import auditController from "./controllers/audit.controller";
 
 type Bindings = {
   DB: D1Database;
@@ -50,6 +52,7 @@ server.get("/", (c) => c.json({ status: "ok", service: "System Payroll API" }));
 server.route("/api/companies", companyController);
 server.route("/api/employees", employeeController);
 server.route("/api/attendance", attendanceController);
+server.route("/api/audit", auditController);
 server.route("/admin", adminController);
 server.route("/api/key-products", keyProductController);
 

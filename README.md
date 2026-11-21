@@ -53,8 +53,14 @@ kept out of the accountant-facing columns.
 
 ## Frontend source archive
 
-The frontend project has been copied to [frontend-source/](./frontend-source/)
+The frontend project has been copied to [frontend/](./frontend/)
 for reference. It is not part of Worker deployment: Wrangler bundles the
 configured `main.ts` entry point and its imports, and uploads static assets
 only from the configured `public/` directory. Do not change the `main` or
-`assets.directory` settings to point to `frontend-source/`.
+`assets.directory` settings to point to `frontend/`.
+
+The shared frontend sidebar is implemented in
+[app-sidebar.jsx](./frontend/src/components/app-sidebar.jsx). Overview and
+Payroll & Employees are routed modules, and Audit log is available to members
+with the `audit.view` permission. Other planned accounting modules remain
+disabled until their screens and permissions exist.

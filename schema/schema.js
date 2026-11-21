@@ -5,6 +5,8 @@ import {
   real,
   index,
   uniqueIndex,
+  primaryKey,
+  foreignKey,
 } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
@@ -299,6 +301,122 @@ export const auditLogs = sqliteTable(
       table.occurredAt,
     ),
   ],
+);
+
+export const companyMemberships = sqliteTable(
+  "company_memberships",
+  {
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => userAdmin.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.companyId, table.userId] }),
+    index("company_memberships_company_role_idx").on(
+      table.companyId,
+      table.role,
+    ),
+  ],
+);
+
+export const permissions = sqliteTable(
+  "permissions",
+  {
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    permissionKey: text("permission_key").notNull(),
+    description: text("description").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.companyId, table.permissionKey] }),
+  ],
+);
+
+export const rolePermissions = sqliteTable(
+  "role_permissions",
+  {
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    permissionKey: text("permission_key").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.companyId, table.role, table.permissionKey] }),
+    index("role_permissions_company_role_idx").on(
+      table.companyId,
+      table.role,
+    ),
+    foreignKey({
+      columns: [table.companyId, table.permissionKey],
+      foreignColumns: [permissions.companyId, permissions.permissionKey],
+    }).onDelete("cascade"),
+  ],
+);
+
+export const companyAuditHeads = sqliteTable("company_audit_heads", {
+  companyId: text("company_id")
+    .primaryKey()
+    .references(() => company.id, { onDelete: "restrict" }),
+  lastSequence: integer("last_sequence").notNull().default(0),
+  lastHash: text("last_hash").notNull(),
+});
+
+export const companyAuditEvents = sqliteTable(
+  "company_audit_events",
+  {
+    id: text("id").notNull(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "restrict" }),
+    sequence: integer("sequence").notNull(),
+    actorId: text("actor_id"),
+    occurredAt: text("occurred_at").notNull(),
+    ipAddress: text("ip_address"),
+    action: text("action").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id"),
+    requestId: text("request_id").notNull(),
+    beforeJson: text("before_json"),
+    afterJson: text("after_json"),
+    metadataJson: text("metadata_json").notNull(),
+    previousHash: text("previous_hash").notNull(),
+    entryHash: text("entry_hash").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.companyId, table.id] }),
+    uniqueIndex("company_audit_events_company_sequence_unique").on(
+      table.companyId,
+      table.sequence,
+    ),
+    index("company_audit_events_company_time_idx").on(
+      table.companyId,
+      table.occurredAt,
+    ),
+    index("company_audit_events_company_actor_idx").on(
+      table.companyId,
+      table.actorId,
+    ),
+  ],
+);
+
+export const companyAuditWriteGuards = sqliteTable(
+  "company_audit_write_guards",
+  {
+    companyId: text("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    guardId: text("guard_id").notNull(),
+    casResult: integer("cas_result"),
+    mutationResult: integer("mutation_result"),
+  },
+  (table) => [primaryKey({ columns: [table.companyId, table.guardId] })],
 );
 
 // --- Relations ---

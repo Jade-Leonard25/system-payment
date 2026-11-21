@@ -1,10 +1,16 @@
 import { Hono } from "hono";
+import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq, inArray } from "drizzle-orm";
 import { company, employees } from "../schema/schema";
 import { generateCustomId } from "../customID";
 import { requireAdmin } from "./admin-access";
 import { z } from "zod";
+import {
+  appendAuditEvent,
+  appendAuditEvents,
+  auditRequestMetadata,
+} from "../services/audit";
 
 type Bindings = { DB: D1Database };
 const employeeController = new Hono<{ Bindings: Bindings }>();
@@ -103,7 +109,60 @@ employeeController.post("/", async (c) => {
     updatedAt: now,
   };
 
-  await db.insert(employees).values(newEmployee);
+  const createdAt = Math.floor(now.getTime() / 1000);
+  const insertStatement = c.env.DB.prepare(
+    `INSERT INTO employees (
+       id, admin_id, company_id, firstname, middlename, lastname, extname,
+       birthdate, gender, civil_status, email, phone, address, employment_type,
+       employment_status, date_hired, date_resigned, department, position, sss,
+       pag_ibig, philhealth, tin, base_salary_cents, daily_rate_cents,
+       hourly_rate_cents, deduct_sss, deduct_philhealth, deduct_pag_ibig,
+       deduct_tax, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    newEmployee.id,
+    newEmployee.adminId,
+    newEmployee.companyId,
+    newEmployee.firstname,
+    newEmployee.middlename,
+    newEmployee.lastname,
+    newEmployee.extname,
+    newEmployee.birthdate,
+    newEmployee.gender,
+    newEmployee.civilStatus,
+    newEmployee.email,
+    newEmployee.phone,
+    newEmployee.address,
+    newEmployee.employmentType,
+    newEmployee.employmentStatus,
+    newEmployee.dateHired,
+    newEmployee.dateResigned,
+    newEmployee.department,
+    newEmployee.position,
+    newEmployee.socialSecurityNumber,
+    newEmployee.pagIbigID,
+    newEmployee.philhealth,
+    newEmployee.taxIdNumber,
+    newEmployee.baseSalaryCents,
+    newEmployee.dailyRateCents,
+    newEmployee.hourlyRateCents,
+    Number(newEmployee.deductSSS),
+    Number(newEmployee.deductPhilHealth),
+    Number(newEmployee.deductPagIbig),
+    Number(newEmployee.deductTax),
+    createdAt,
+    createdAt,
+  );
+  await appendAuditEvent(c.env.DB, {
+    companyId: body.companyId,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "employee.create",
+    resourceType: "employee",
+    resourceId: newEmployee.id,
+    after: newEmployee,
+  }, [{ companyId: body.companyId, statement: insertStatement, expectedChanges: 1 }]);
   return c.json({ success: true, data: newEmployee }, 201);
 });
 
@@ -194,7 +253,7 @@ employeeController.post("/batch", async (c) => {
     updatedAt: createdAt,
   }));
 
-  await c.env.DB.prepare(
+  const insertStatement = c.env.DB.prepare(
     `INSERT INTO employees (
       id, admin_id, company_id, firstname, middlename, lastname, extname,
       birthdate, gender, civil_status, email, phone, address, employment_type,
@@ -237,7 +296,17 @@ employeeController.post("/batch", async (c) => {
       json_extract(value, '$.createdAt'),
       json_extract(value, '$.updatedAt')
     FROM json_each(?)`,
-  ).bind(JSON.stringify(insertPayload)).run();
+  ).bind(JSON.stringify(insertPayload));
+
+  await appendAuditEvent(c.env.DB, {
+    companyId,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "employee.batch_create",
+    resourceType: "employee_batch",
+    resourceId: newEmployees[0]?.id ?? null,
+    after: { count: newEmployees.length, employeeIds: newEmployees.map(({ id }) => id) },
+  }, [{ companyId, statement: insertStatement, expectedChanges: newEmployees.length }]);
 
   return c.json(
     { success: true, data: newEmployees.map(({ id }) => ({ id })) },
@@ -293,7 +362,13 @@ employeeController.put("/batch-rates", async (c) => {
     return c.json({ error: "Every update must include a valid employee ID" }, 400);
   }
   const ownedEmployees = await db
-    .select({ id: employees.id })
+    .select({
+      id: employees.id,
+      companyId: employees.companyId,
+      baseSalaryCents: employees.baseSalaryCents,
+      dailyRateCents: employees.dailyRateCents,
+      hourlyRateCents: employees.hourlyRateCents,
+    })
     .from(employees)
     .innerJoin(company, eq(employees.companyId, company.id))
     .where(and(eq(company.adminId, access.userId), inArray(employees.id, employeeIds)));
@@ -301,22 +376,63 @@ employeeController.put("/batch-rates", async (c) => {
     return c.json({ error: "One or more employees were not found" }, 404);
   }
 
-  const now = new Date();
-  const batchQueries = updates.map((item) =>
-    db
-      .update(employees)
-      .set({
-        baseSalaryCents: item.baseSalaryCents,
-        dailyRateCents: item.dailyRateCents,
-        hourlyRateCents: item.hourlyRateCents,
-        updatedAt: now,
-      })
-      .where(eq(employees.id, item.id)),
-  );
-
-  await db.batch(
-    batchQueries as [(typeof batchQueries)[0], ...typeof batchQueries],
-  );
+  const updatesById = new Map(updates.map((item) => [item.id, item]));
+  const changesByCompany = new Map<
+    string,
+    { before: typeof ownedEmployees; after: Record<string, unknown>[] }
+  >();
+  for (const employee of ownedEmployees) {
+    const update = updatesById.get(employee.id);
+    if (!update) continue;
+    const changes = changesByCompany.get(employee.companyId) ?? {
+      before: [],
+      after: [],
+    };
+    changes.before.push(employee);
+    changes.after.push({
+      id: employee.id,
+      baseSalaryCents: update.baseSalaryCents,
+      dailyRateCents: update.dailyRateCents,
+      hourlyRateCents: update.hourlyRateCents,
+    });
+    changesByCompany.set(employee.companyId, changes);
+  }
+  const auditEvents = [...changesByCompany].map(([companyId, changes]) => ({
+    companyId,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "employee.rates.update",
+    resourceType: "employee",
+    before: changes.before,
+    after: changes.after,
+    metadata: { updatedCount: changes.after.length },
+  }));
+  const mutations = [...changesByCompany].map(([companyId, changes]) => {
+    const companyUpdates = changes.after.map((change) => ({
+      ...change,
+      companyId,
+    }));
+    return {
+      statement: c.env.DB.prepare(
+        `UPDATE employees
+         SET base_salary_cents = json_extract(payload.value, '$.baseSalaryCents'),
+             daily_rate_cents = json_extract(payload.value, '$.dailyRateCents'),
+             hourly_rate_cents = json_extract(payload.value, '$.hourlyRateCents'),
+             updated_at = ?
+         FROM json_each(?) AS payload
+         WHERE employees.id = json_extract(payload.value, '$.id')
+           AND employees.company_id = ?
+           AND json_extract(payload.value, '$.companyId') = employees.company_id`,
+      ).bind(
+        Math.floor(Date.now() / 1000),
+        JSON.stringify(companyUpdates),
+        companyId,
+      ),
+      companyId,
+      expectedChanges: companyUpdates.length,
+    };
+  });
+  await appendAuditEvents(c.env.DB, auditEvents, mutations);
   return c.json({ success: true, updatedCount: updates.length });
 });
 
@@ -328,24 +444,31 @@ employeeController.delete("/:id", async (c) => {
   const db = drizzle(c.env.DB);
   const id = c.req.param("id");
 
-  const [deleted] = await db
-    .delete(employees)
-    .where(
-      and(
-        eq(employees.id, id),
-        inArray(
-          employees.companyId,
-          db
-            .select({ id: company.id })
-            .from(company)
-            .where(eq(company.adminId, access.userId)),
-        ),
-      ),
-    )
-    .returning({ id: employees.id });
-  if (!deleted) {
+  const [existingEmployee] = await db
+    .select({ record: employees, companyId: employees.companyId })
+    .from(employees)
+    .innerJoin(company, eq(employees.companyId, company.id))
+    .where(and(eq(employees.id, id), eq(company.adminId, access.userId)))
+    .limit(1);
+  if (!existingEmployee) {
     return c.json({ error: "Employee not found" }, 404);
   }
+  await appendAuditEvent(c.env.DB, {
+    companyId: existingEmployee.companyId,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "employee.delete",
+    resourceType: "employee",
+    resourceId: id,
+    before: { ...existingEmployee.record, companyId: existingEmployee.companyId },
+    after: null,
+  }, [{
+    companyId: existingEmployee.companyId,
+    statement: c.env.DB.prepare(
+      "DELETE FROM employees WHERE id = ? AND company_id = ?",
+    ).bind(id, existingEmployee.companyId),
+    expectedChanges: 1,
+  }]);
   return c.json({ success: true });
 });
 

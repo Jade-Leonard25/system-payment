@@ -86,6 +86,70 @@ Update the owned company identified by `id`. Include only fields to change:
 **Success:** `200 { "success": true }`. Returns `404` if the company is not
 owned by the caller or does not exist.
 
+### `GET /api/companies/accessible`
+
+List companies owned by the signed-in user or assigned through a
+company-scoped membership. Requires a valid Better Auth session. The response
+includes company IDs and names for the company switcher.
+
+**Success:** `200 { "data": [<company>, ...] }`.
+
+## Audit log and permissions
+
+Audit records and permission grants are scoped to a company. The migration
+grants `audit.view` to that company's `admin` and `auditor` membership roles;
+employee memberships do not receive it. A company owner is created as an
+`admin` member when the company is created. There is not yet a UI for assigning
+auditor memberships.
+
+Every audit endpoint below requires a session, a membership in the requested
+company, and the `audit.view` role grant. Supplying a company ID does not grant
+access. Missing membership returns `404`; a member without the permission
+receives `403`.
+
+### `GET /api/audit/access?companyId=<id>`
+
+Permission probe for navigation visibility.
+
+**Success:** `200 { "allowed": true }`.
+
+### `GET /api/audit?companyId=<id>`
+
+List audit events, newest first. Optional filters are `from` and `to`
+(`YYYY-MM-DD`, inclusive), `user` (actor ID, name, or email), `action`
+(exact match), and `resource` (resource type or ID). `limit` defaults to 100
+and is capped at 200; `offset` defaults to 0.
+
+**Success:** `200 { "data": [<event summary>, ...], "limit": 100, "offset": 0 }`.
+
+### `GET /api/audit/:id?companyId=<id>`
+
+Return a single event including its before/after JSON, IP address, request ID,
+previous hash, and entry hash. The query always includes both `company_id`
+and event ID.
+
+**Success:** `200 { "data": <audit event> }`; `404` if no event exists in that
+company.
+
+### `GET /api/audit/export.csv?companyId=<id>`
+
+Export the matching event range as CSV. Uses the same filters as the list.
+Exports above 20,000 matching events return `413`; narrow the date range or
+filters before retrying.
+
+### `GET /api/audit/integrity?companyId=<id>`
+
+Recompute and verify the company's ordered hash chain and chain head.
+
+**Success:** `200 { "valid": true, "checked": <count> }`, or
+`200 { "valid": false, "checked": <count>, "error": <reason> }` when an
+integrity problem is found.
+
+Audit events are append-only and their business mutation, chain-head update,
+and event insertion are committed in one guarded D1 batch. The legacy
+attendance-specific `audit_logs` table remains separate and is not rewritten
+as general audit history.
+
 ## Employees
 
 Base path: `/api/employees`. All routes require an administrator session.

@@ -11,6 +11,7 @@ import {
 } from "../schema/schema";
 import { generateCustomId } from "../customID";
 import { requireAdmin } from "./admin-access";
+import { appendAuditEvent, auditRequestMetadata } from "../services/audit";
 import {
   canonicalizeAttendancePayload,
   getBatchReplayDecision,
@@ -352,8 +353,11 @@ attendanceController.post("/scan-compute", async (c) => {
     flaggedCount: scan.reviewQueue.length,
     rejectedCount: rejectedRows.length,
   };
-  const statements = [
-    c.env.DB.prepare(
+  const mutations = [
+    {
+      companyId,
+      expectedChanges: 1,
+      statement: c.env.DB.prepare(
       `INSERT INTO "attendance_batches" (
         "id", "company_id", "batch_id", "payload_hash", "status",
         "total_rows", "computed_count", "flagged_count", "rejected_count",
@@ -373,9 +377,12 @@ attendanceController.post("/scan-compute", async (c) => {
       SCAN_RULES_VERSION,
       JSON.stringify(response),
       createdAt,
-    ),
-    ...chunkRows(rawPersistRows, INSERT_CHUNK_SIZE).map((chunk) =>
-      insertStatement(
+      ),
+    },
+    ...chunkRows(rawPersistRows, INSERT_CHUNK_SIZE).map((chunk) => ({
+      companyId,
+      expectedChanges: chunk.length,
+      statement: insertStatement(
         c.env.DB,
         "raw_attendance_logs",
         [
@@ -393,9 +400,11 @@ attendanceController.post("/scan-compute", async (c) => {
         ],
         chunk,
       ),
-    ),
-    ...chunkRows(summaryPersistRows, INSERT_CHUNK_SIZE).map((chunk) =>
-      insertStatement(
+    })),
+    ...chunkRows(summaryPersistRows, INSERT_CHUNK_SIZE).map((chunk) => ({
+      companyId,
+      expectedChanges: chunk.length,
+      statement: insertStatement(
         c.env.DB,
         "computed_shift_summaries",
         [
@@ -421,10 +430,13 @@ attendanceController.post("/scan-compute", async (c) => {
         ],
         chunk,
       ),
-    ),
-    c.env.DB.prepare(
+    })),
+    {
+      companyId,
+      expectedChanges: 1,
+      statement: c.env.DB.prepare(
       `INSERT INTO "audit_logs" (
-        "id", "company_id", "actor_id", "batch_id", "action",
+      "id", "company_id", "actor_id", "batch_id", "action",
         "rules_version", "occurred_at", "metadata_json"
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
@@ -436,11 +448,24 @@ attendanceController.post("/scan-compute", async (c) => {
       SCAN_RULES_VERSION,
       createdAt,
       JSON.stringify(auditMetadata),
-    ),
+      ),
+    },
   ];
 
   try {
-    await c.env.DB.batch(statements);
+    await appendAuditEvent(
+      c.env.DB,
+      {
+        companyId,
+        actorId: access.userId,
+        ...auditRequestMetadata(c.req.raw.headers),
+        action: "attendance_batch.scan_compute",
+        resourceType: "attendance_batch",
+        resourceId: batchId,
+        after: auditMetadata,
+      },
+      mutations,
+    );
   } catch (persistenceError) {
     const [concurrentBatch] = await readExistingBatch();
     if (concurrentBatch) {
@@ -563,7 +588,38 @@ attendanceController.post("/admin/clock-in", async (c) => {
     createdAt: new Date(),
   };
 
-  await db.insert(attendanceLogs).values(newLog);
+  const createdAt = Math.floor(newLog.createdAt.getTime() / 1000);
+  const insertStatement = c.env.DB.prepare(
+    `INSERT INTO attendance_logs (
+       id, employee_id, log_date, time_in_minutes, time_out_minutes,
+       total_hours_worked, overtime_hours, late_minutes, created_at
+     )
+     SELECT ?, ?, ?, ?, NULL, ?, ?, ?, ?
+     WHERE EXISTS (
+       SELECT 1 FROM employees
+       WHERE id = ? AND company_id = ?
+     )`,
+  ).bind(
+    newLog.id,
+    newLog.employeeId,
+    newLog.logDate,
+    newLog.timeInMinutes,
+    newLog.totalHoursWorked,
+    newLog.overtimeHours,
+    newLog.lateMinutes,
+    createdAt,
+    newLog.employeeId,
+    body.companyId,
+  );
+  await appendAuditEvent(c.env.DB, {
+    companyId: body.companyId,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "attendance.clock_in",
+    resourceType: "attendance_log",
+    resourceId: newLog.id,
+    after: newLog,
+  }, [{ companyId: body.companyId, statement: insertStatement, expectedChanges: 1 }]);
   return c.json({ success: true, data: newLog }, 201);
 });
 
@@ -600,6 +656,13 @@ attendanceController.put("/admin/clock-out/:id", async (c) => {
     .select({
       id: attendanceLogs.id,
       timeInMinutes: attendanceLogs.timeInMinutes,
+      logDate: attendanceLogs.logDate,
+      timeOutMinutes: attendanceLogs.timeOutMinutes,
+      totalHoursWorked: attendanceLogs.totalHoursWorked,
+      overtimeHours: attendanceLogs.overtimeHours,
+      lateMinutes: attendanceLogs.lateMinutes,
+      employeeId: attendanceLogs.employeeId,
+      companyId: employees.companyId,
     })
     .from(attendanceLogs)
     .innerJoin(employees, eq(attendanceLogs.employeeId, employees.id))
@@ -625,20 +688,53 @@ attendanceController.put("/admin/clock-out/:id", async (c) => {
   const netMinutes = Math.max(0, elapsedMinutes - breakMinutes);
   const totalHoursWorked = Number((netMinutes / 60).toFixed(2));
   const overtimeHours = Number(Math.max(0, totalHoursWorked - 8).toFixed(2));
-  const [closedLog] = await db
-    .update(attendanceLogs)
-    .set({
+  await appendAuditEvent(c.env.DB, {
+    companyId: existing.companyId,
+    actorId: access.userId,
+    ...auditRequestMetadata(c.req.raw.headers),
+    action: "attendance.clock_out",
+    resourceType: "attendance_log",
+    resourceId: id,
+    before: {
+      id: existing.id,
+      employeeId: existing.employeeId,
+      logDate: existing.logDate,
+      timeInMinutes: existing.timeInMinutes,
+      timeOutMinutes: existing.timeOutMinutes,
+      totalHoursWorked: existing.totalHoursWorked,
+      overtimeHours: existing.overtimeHours,
+      lateMinutes: existing.lateMinutes,
+    },
+    after: {
+      id: existing.id,
+      employeeId: existing.employeeId,
+      logDate: existing.logDate,
+      timeInMinutes: existing.timeInMinutes,
       timeOutMinutes: body.timeOutMinutes,
       totalHoursWorked,
       overtimeHours,
-    })
-    .where(and(eq(attendanceLogs.id, id), isNull(attendanceLogs.timeOutMinutes)))
-    .returning({ id: attendanceLogs.id });
-
-  if (!closedLog) {
-    return c.json({ error: "Attendance record was already clocked out" }, 409);
-  }
-
+      lateMinutes: existing.lateMinutes,
+    },
+  }, [{
+    companyId: existing.companyId,
+    statement: c.env.DB.prepare(
+      `UPDATE attendance_logs
+       SET time_out_minutes = ?, total_hours_worked = ?, overtime_hours = ?
+       WHERE id = ? AND time_out_minutes IS NULL
+         AND EXISTS (
+           SELECT 1 FROM employees
+           WHERE employees.id = attendance_logs.employee_id
+             AND employees.company_id = ?
+         )`,
+    ).bind(
+      body.timeOutMinutes,
+      totalHoursWorked,
+      overtimeHours,
+      id,
+      existing.companyId,
+    ),
+    expectedChanges: 1,
+  }]);
   return c.json({
     success: true,
     data: { id, timeOutMinutes: body.timeOutMinutes, totalHoursWorked, overtimeHours },
