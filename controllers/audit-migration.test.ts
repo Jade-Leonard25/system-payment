@@ -271,6 +271,38 @@ test("audited mutations commit atomically with the chain and roll back when row 
   }
 });
 
+test("company creation mutation can create its own chain head atomically", async () => {
+  const database = makeDatabase();
+  try {
+    database.exec("INSERT INTO user_admin (id) VALUES ('admin-3')");
+    const d1 = createD1Adapter(database);
+    await appendAuditEvent(
+      d1,
+      {
+        companyId: "company-new",
+        actorId: "admin-3",
+        action: "company.create",
+        resourceType: "company",
+        resourceId: "company-new",
+        requestId: "company-create-1",
+        after: { id: "company-new", name: "Dynamic" },
+      },
+      [{
+        companyId: "company-new",
+        statement: d1.prepare(
+          "INSERT INTO company (id, admin_id) VALUES (?, ?)",
+        ).bind("company-new", "admin-3"),
+        expectedChanges: 1,
+      }],
+    );
+    expect(database.query("SELECT COUNT(*) AS count FROM company WHERE id=?").get("company-new")).toEqual({ count: 1 });
+    expect(database.query("SELECT COUNT(*) AS count FROM company_audit_heads WHERE company_id=?").get("company-new")).toEqual({ count: 1 });
+    expect(database.query("SELECT COUNT(*) AS count FROM company_audit_events WHERE company_id=?").get("company-new")).toEqual({ count: 1 });
+  } finally {
+    database.close();
+  }
+});
+
 test("audit API rejects anonymous access even when a company ID is supplied", async () => {
   const database = makeDatabase();
   try {

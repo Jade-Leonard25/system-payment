@@ -132,16 +132,6 @@ export async function appendAuditEvents(
     throw new Error("Audited mutations must declare a positive expected row count.");
   }
 
-  for (const companyId of companyIds) {
-    await database
-      .prepare(
-        `INSERT OR IGNORE INTO company_audit_heads
-          (company_id, last_sequence, last_hash) VALUES (?, 0, ?)`,
-      )
-      .bind(companyId, GENESIS_HASH)
-      .run();
-  }
-
   for (let attempt = 0; attempt < MAX_APPEND_ATTEMPTS; attempt += 1) {
     const heads = await Promise.all(
       normalizedInputs.map(async (input) => {
@@ -153,7 +143,18 @@ export async function appendAuditEvents(
           )
           .bind(input.companyId)
           .first<AuditHead>();
-        if (!head) throw new Error("Audit chain head is missing for this company.");
+        if (!head) {
+          const mutationCreatesCompany = mutations.some(
+            (mutation) => mutation.companyId === input.companyId,
+          );
+          if (!mutationCreatesCompany) {
+            throw new Error("Audit chain head is missing for this company.");
+          }
+          return {
+            input,
+            head: { last_sequence: 0, last_hash: GENESIS_HASH },
+          };
+        }
         return { input, head };
       }),
     );
@@ -189,6 +190,23 @@ export async function appendAuditEvents(
     const guardIds: { companyId: string; guardId: string }[] = [];
     const headUpdateIndexes: number[] = [];
     const eventInsertIndexes: number[] = [];
+
+    for (const mutation of mutations) {
+      const guardId = crypto.randomUUID();
+      const companyId = mutation.companyId;
+      guardIds.push({ companyId, guardId });
+      statements.push(mutation.statement);
+      statements.push(
+        database
+          .prepare(
+            `INSERT INTO company_audit_write_guards
+              (company_id, guard_id, cas_result, mutation_result)
+             VALUES (?, ?, NULL, CASE WHEN changes() = ? THEN 1 ELSE 0 END)`,
+          )
+          .bind(companyId, guardId, mutation.expectedChanges),
+      );
+    }
+
     for (let index = 0; index < records.length; index += 1) {
       const record = records[index];
       if (!record) throw new Error("Audit transaction lost a prepared event.");
@@ -219,21 +237,6 @@ export async function appendAuditEvents(
              VALUES (?, ?, changes(), NULL)`,
           )
           .bind(fields.companyId, guardId),
-      );
-    }
-    for (const mutation of mutations) {
-      const guardId = crypto.randomUUID();
-      const companyId = mutation.companyId;
-      guardIds.push({ companyId, guardId });
-      statements.push(mutation.statement);
-      statements.push(
-        database
-          .prepare(
-            `INSERT INTO company_audit_write_guards
-              (company_id, guard_id, cas_result, mutation_result)
-             VALUES (?, ?, NULL, CASE WHEN changes() = ? THEN 1 ELSE 0 END)`,
-          )
-          .bind(companyId, guardId, mutation.expectedChanges),
       );
     }
     for (let index = 0; index < records.length; index += 1) {
