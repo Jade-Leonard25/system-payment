@@ -2,9 +2,9 @@ import { AUTH_TOKEN_KEY, authBaseURL } from "./auth-client";
 
 export async function apiRequest(
   path,
-  { method = "GET", body, responseType = "json" } = {},
+  { method = "GET", body, responseType = "json", headers: requestHeaders } = {},
 ) {
-  const headers = new Headers();
+  const headers = new Headers(requestHeaders);
   const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (body !== undefined) headers.set("Content-Type", "application/json");

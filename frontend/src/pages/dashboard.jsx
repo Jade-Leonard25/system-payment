@@ -46,6 +46,7 @@ import { Switch } from "../components/ui/switch";
 import { apiRequest } from "../api-client";
 import AppSidebar from "../components/app-sidebar";
 import AuditLogPage from "./audit-log";
+import SalesReceivablesPage from "./sales-receivables";
 import TransactionsPage from "./transactions";
 
 const SELECTED_COMPANY_KEY = "payroll_selected_company_id";
@@ -57,6 +58,11 @@ const getInitials = (name = "") =>
     .slice(0, 2)
     .map((part) => part.charAt(0).toUpperCase())
     .join("") || "U";
+
+const formatMinorCurrency = (minor) => {
+  const amount = BigInt(minor ?? 0);
+  return `₱${new Intl.NumberFormat("en-PH").format(amount / 100n)}.${String(amount % 100n).padStart(2, "0")}`;
+};
 
 const getLocalClock = () => {
   const now = new Date();
@@ -111,6 +117,8 @@ export default function Dashboard() {
     allowed: false,
     error: "",
   });
+  const [salesAccess, setSalesAccess] = useState({ companyId: "", allowed: false, error: "" });
+  const [salesSummary, setSalesSummary] = useState({ companyId: "", data: null, error: "" });
   const [rosterEmployees, setRosterEmployees] = useState([]);
   const [attendanceLogs, setAttendanceLogs] = useState([]);
   const [loadedAttendanceCompanyId, setLoadedAttendanceCompanyId] = useState("");
@@ -121,12 +129,15 @@ export default function Dashboard() {
   const userRole = user?.role || "Role unavailable";
   const isAuditPage = location.pathname === "/audit";
   const isTransactionsPage = location.pathname === "/transactions";
+  const isSalesPage = location.pathname === "/sales";
   const canViewAudit =
     auditAccess.companyId === selectedCompanyId && auditAccess.allowed;
   const isCheckingAuditAccess =
     Boolean(selectedCompanyId) && auditAccess.companyId !== selectedCompanyId;
   const auditPermissionError =
     auditAccess.companyId === selectedCompanyId ? auditAccess.error : "";
+  const canViewSales = salesAccess.companyId === selectedCompanyId && salesAccess.allowed;
+  const isCheckingSalesAccess = Boolean(selectedCompanyId) && salesAccess.companyId !== selectedCompanyId;
   const today = getLocalClock().logDate;
   const attendanceLoaded =
     Boolean(selectedCompanyId) &&
@@ -180,6 +191,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     let active = true;
+    if (!selectedCompanyId || !canViewSales) return undefined;
+    const query = new URLSearchParams({ companyId: selectedCompanyId });
+    apiRequest(`/api/sales/summary?${query}`)
+      .then((result) => {
+        if (active) setSalesSummary({ companyId: selectedCompanyId, data: result?.data ?? null, error: "" });
+      })
+      .catch((summaryError) => {
+        if (active) setSalesSummary({
+          companyId: selectedCompanyId,
+          data: null,
+          error: summaryError instanceof Error ? summaryError.message : "Could not load receivables.",
+        });
+      });
+    return () => { active = false; };
+  }, [canViewSales, selectedCompanyId]);
+
+  useEffect(() => {
+    let active = true;
     if (!selectedCompanyId) return undefined;
 
     const query = new URLSearchParams({ companyId: selectedCompanyId });
@@ -212,6 +241,24 @@ export default function Dashboard() {
     return () => {
       active = false;
     };
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedCompanyId) return undefined;
+    const query = new URLSearchParams({ companyId: selectedCompanyId });
+    apiRequest(`/api/sales/access?${query}`)
+      .then((result) => {
+        if (active) setSalesAccess({ companyId: selectedCompanyId, allowed: result?.allowed === true, error: "" });
+      })
+      .catch((accessError) => {
+        if (active) setSalesAccess({
+          companyId: selectedCompanyId,
+          allowed: false,
+          error: accessError instanceof Error ? accessError.message : "Could not verify Sales & Receivables access.",
+        });
+      });
+    return () => { active = false; };
   }, [selectedCompanyId]);
 
   const handleCreateCompany = async (event) => {
@@ -358,6 +405,7 @@ export default function Dashboard() {
         companies={companies}
         selectedCompanyId={selectedCompanyId}
         canViewAudit={canViewAudit}
+        canViewSales={canViewSales}
         isLoadingCompanies={isLoadingCompanies}
         onCompanyChange={(companyId) => {
           setSelectedCompanyId(companyId);
@@ -376,10 +424,10 @@ export default function Dashboard() {
             <SidebarTrigger aria-label="Toggle sidebar" />
             <div>
               <p className="text-sm font-semibold">
-                {isAuditPage ? "Audit log" : isTransactionsPage ? "Transactions" : "Overview"}
+                {isAuditPage ? "Audit log" : isTransactionsPage ? "Transactions" : isSalesPage ? "Sales & Receivables" : "Overview"}
               </p>
               <p className="hidden text-xs text-muted-foreground sm:block">
-                {isAuditPage ? "Company activity and integrity" : isTransactionsPage ? "Accounts and journal entries" : "Workspace overview"}
+                {isAuditPage ? "Company activity and integrity" : isTransactionsPage ? "Accounts and journal entries" : isSalesPage ? "Invoices, customers, and receivables" : "Workspace overview"}
               </p>
             </div>
           </div>
@@ -441,6 +489,13 @@ export default function Dashboard() {
         <main className="min-h-0 flex-1 space-y-6 overflow-auto p-4 md:p-6">
           {isTransactionsPage ? (
             <TransactionsPage companyId={selectedCompanyId} />
+          ) : isSalesPage ? (
+            <SalesReceivablesPage
+              companyId={selectedCompanyId}
+              canView={canViewSales}
+              isCheckingAccess={isCheckingSalesAccess}
+              permissionError={salesAccess.companyId === selectedCompanyId ? salesAccess.error : ""}
+            />
           ) : isAuditPage ? (
             <AuditLogPage
               companyId={selectedCompanyId}
@@ -484,18 +539,28 @@ export default function Dashboard() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
-                ["Cash on hand & bank", "Ledger data not connected"],
-                ["Accounts receivable", "Invoice data not connected"],
-                ["Accounts payable", "Expense data not connected"],
-                ["Net income (MTD / YTD)", "Posted ledger data not connected"],
-              ].map(([label, detail]) => (
+                { label: "Cash on hand & bank", value: "—", detail: "Ledger data not connected" },
+                {
+                  label: "Accounts receivable",
+                  value: canViewSales && salesSummary.companyId === selectedCompanyId && salesSummary.data
+                    ? formatMinorCurrency(salesSummary.data.receivablesMinor)
+                    : "—",
+                  detail: canViewSales && salesSummary.companyId === selectedCompanyId && salesSummary.error
+                    ? `Could not load receivables: ${salesSummary.error}`
+                    : canViewSales && salesSummary.companyId === selectedCompanyId && salesSummary.data
+                      ? "Outstanding issued invoices"
+                      : canViewSales ? "Loading receivables…" : "Sales permission required",
+                },
+                { label: "Accounts payable", value: "—", detail: "Expense data not connected" },
+                { label: "Net income (MTD / YTD)", value: "—", detail: "Posted ledger data not connected" },
+              ].map(({ label, detail, value }) => (
                 <article
-                  className="rounded-xl border border-dashed bg-background p-5"
+                  className={`rounded-xl border bg-background p-5 ${value === "—" ? "border-dashed" : ""}`}
                   key={label}
                 >
                   <p className="text-sm text-muted-foreground">{label}</p>
-                  <p className="mt-3 text-2xl font-semibold text-muted-foreground">
-                    —
+                  <p className={`mt-3 text-2xl font-semibold tabular-nums ${value === "—" ? "text-muted-foreground" : ""}`}>
+                    {value}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
                 </article>

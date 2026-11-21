@@ -46,7 +46,7 @@ import {
 const primaryModules = [
   { label: "Overview", href: "/dashboard", Icon: LayoutDashboard },
   { label: "Transactions", href: "/transactions", detail: "Journal, Chart of Accounts", Icon: BookOpen },
-  { label: "Sales & Receivables", Icon: ReceiptText },
+  { label: "Sales & Receivables", href: "/sales", Icon: ReceiptText },
   { label: "Purchases & Payables", Icon: Wallet },
   { label: "Banking", detail: "Reconciliation", Icon: Banknote },
   {
@@ -84,6 +84,7 @@ export default function AppSidebar({
   onCompanyChange,
   isLoadingCompanies = false,
   canViewAudit,
+  canViewSales,
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -94,7 +95,9 @@ export default function AppSidebar({
     canViewAudit ??
     (auditAccess.companyId === selectedCompanyId && auditAccess.allowed);
   const visiblePrimaryModules = primaryModules.filter(
-    (item) => item.href !== "/audit" || hasAuditPermission,
+    (item) =>
+      (item.href !== "/audit" || hasAuditPermission) &&
+      (item.href !== "/sales" || canViewSales === true),
   );
 
   useEffect(() => {
