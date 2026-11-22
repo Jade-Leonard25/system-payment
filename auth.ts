@@ -70,16 +70,15 @@ export const createAuth = (d1: D1Database, baseURL: string) => {
       },
     },
     plugins: [bearer()],
-    trustedOrigins: [
-      "https://system-management-r5kxsxqtj-jade-leonard-alvezs-projects.vercel.app",
-      "http://localhost:1420",
-      "http://localhost:5173", // Vite dev server (tauri dev)
-      "http://localhost:3000", // Next.js web frontend (local development)
-      "http://127.0.0.1:5173", // Alternative dev loopback
-      "http://tauri.localhost", // Tauri v2 production origin
-      "https://tauri.localhost", // Tauri v2 HTTPS scheme (if enabled)
-      // If you register a custom protocol/deep-link scheme in Tauri (e.g. tauri-payroll):
-      "tauri-payroll://*",
-    ],
+trustedOrigins: [
+  "https://your-app.vercel.app",          // production alias
+  "https://*.vercel.app",                 // all preview deployments (wildcards are supported)
+  "http://localhost:1420",
+  "http://localhost:5173",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
+  "tauri://localhost",                    // Tauri v2 on macOS/Linux
+  "tauri-payroll://*",
+],
   });
 };
