@@ -29,6 +29,9 @@ server.use(
         "http://127.0.0.1:5173",
         "http://tauri.localhost",
         "https://tauri.localhost",
+        "https://system-management-git-main-jade-leonard-alvezs-projects.vercel.app/",
+        "https://system-management-eight.vercel.app/login",
+        "https://system-management-27su0o74q-jade-leonard-alvezs-projects.vercel.app/login"
       ];
 
       if (!origin) return undefined;
