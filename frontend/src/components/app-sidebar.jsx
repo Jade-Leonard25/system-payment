@@ -15,6 +15,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+import accountingWorkspaceLogo from "../assets/accounting-workspace-logo.svg";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
   Command,
@@ -147,9 +148,12 @@ export default function AppSidebar({
     <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-lg border border-sidebar-border">
-            <Building2 className="size-4" aria-hidden="true" />
-          </div>
+          <img
+            src={accountingWorkspaceLogo}
+            className="size-9 shrink-0 rounded-lg"
+            alt=""
+            aria-hidden="true"
+          />
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="truncate text-sm font-semibold">Payroll</p>
             <p className="truncate text-xs text-muted-foreground">

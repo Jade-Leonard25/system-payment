@@ -28,6 +28,7 @@ import {
 import { useSession } from "../auth-client";
 import { apiRequest } from "../api-client";
 import { columnName, parseCsv } from "../lib/csv";
+import { createDebouncedIdleTask } from "../lib/debounced-idle-task";
 import AppSidebar from "../components/app-sidebar";
 
 const STORAGE_KEY = "payroll_mock_employees_workbook";
@@ -571,7 +572,8 @@ export default function CreateEmployees() {
 
   useEffect(() => {
     let active = true;
-    let saveTimer;
+    let saveTask;
+    let removeSaveListeners = () => {};
     let initializationTimer;
     let univer;
     let saveSubscription;
@@ -641,35 +643,44 @@ export default function CreateEmployees() {
         }
 
         const saveWorkbook = () => {
-          window.localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(workbook.save()),
-          );
-          if (active && !backendSaveRef.current) {
-            setStatus("Draft auto-saved");
+          try {
+            window.localStorage.setItem(
+              STORAGE_KEY,
+              JSON.stringify(workbook.save()),
+            );
+            if (active && !backendSaveRef.current) {
+              setStatus("Draft auto-saved");
+            }
+          } catch (saveError) {
+            const message =
+              saveError instanceof Error
+                ? saveError.message
+                : "Could not save spreadsheet changes.";
+            if (active) {
+              setError(message);
+            } else {
+              console.error("Could not save employee spreadsheet changes.", saveError);
+            }
           }
+        };
+
+        saveTask = createDebouncedIdleTask(saveWorkbook, { delay: 300 });
+        const flushPendingSave = () => saveTask.flush();
+        const flushOnHidden = () => {
+          if (document.visibilityState === "hidden") flushPendingSave();
+        };
+        window.addEventListener("pagehide", flushPendingSave);
+        document.addEventListener("visibilitychange", flushOnHidden);
+        removeSaveListeners = () => {
+          window.removeEventListener("pagehide", flushPendingSave);
+          document.removeEventListener("visibilitychange", flushOnHidden);
         };
 
         saveSubscription = created.univerAPI.addEvent(
           created.univerAPI.Event.CommandExecuted,
-          () => {
-            window.clearTimeout(saveTimer);
-            saveTimer = window.setTimeout(() => {
-              try {
-                saveWorkbook();
-              } catch (saveError) {
-                if (active) {
-                  setError(
-                    saveError instanceof Error
-                      ? saveError.message
-                      : "Could not save spreadsheet changes.",
-                  );
-                }
-              }
-            }, 300);
-          },
+          () => saveTask.schedule(),
         );
-        saveWorkbook();
+        saveTask.schedule();
       } catch (initializationError) {
         if (active) {
           setError(
@@ -684,7 +695,9 @@ export default function CreateEmployees() {
     return () => {
       active = false;
       window.clearTimeout(initializationTimer);
-      window.clearTimeout(saveTimer);
+      removeSaveListeners();
+      saveTask?.flush();
+      saveTask?.cancel();
       saveSubscription?.dispose();
       univer?.dispose();
       workbookRef.current = null;

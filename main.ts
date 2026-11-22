@@ -22,8 +22,10 @@ server.use(
     origin: (origin) => {
       const allowedOrigins = [
         "https://system-payroll-api.automation-payroll.workers.dev",
+        "https://system-management-r5kxsxqtj-jade-leonard-alvezs-projects.vercel.app",
         "http://localhost:1420",
         "http://localhost:5173",
+        "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://tauri.localhost",
         "https://tauri.localhost",
